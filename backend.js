@@ -5,6 +5,11 @@
   const headers = token => ({ apikey: cfg.publishableKey, authorization: `Bearer ${token || cfg.publishableKey}`, 'content-type': 'application/json' });
   const session = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } };
   const saveSession = value => value ? localStorage.setItem(SESSION_KEY, JSON.stringify(value)) : localStorage.removeItem(SESSION_KEY);
+  const callback = new URLSearchParams(location.hash.slice(1));
+  if (callback.get('access_token')) {
+    saveSession({ access_token: callback.get('access_token'), refresh_token: callback.get('refresh_token'), expires_at: Math.floor(Date.now() / 1000) + Number(callback.get('expires_in') || 3600), user: { email: 'Akun terverifikasi' } });
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   async function request(path, options = {}, token) {
     const response = await fetch(`${cfg.url}${path}`, { ...options, headers: { ...headers(token), ...(options.headers || {}) } });
     const body = await response.text();
