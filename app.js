@@ -10,6 +10,7 @@
   let page = 'dashboard';
   let monthOffset = 0;
   let personalTab = 'activity';
+  let overlayOpen = false;
   let amountsHidden = false;
   const el = (s, root = document) => root.querySelector(s);
   const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,7 +36,25 @@
   }
   let syncTimer;
   function save() { localStorage.setItem(KEY, JSON.stringify(data)); render(); if (window.RuangBackend?.enabled()) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncCloud(false), 900); } }
-  function setPage(next) { page = next; document.querySelectorAll('[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page)); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  const routeState = (overlay = false) => ({ ruangArus: true, page, personalTab, overlay });
+  function setPage(next, fromHistory = false) {
+    if (!['dashboard', 'personal', 'business', 'savings', 'notes', 'settings'].includes(next)) return;
+    if (overlayOpen) {
+      closeModal(false);
+      if (history.state?.ruangArus) history.replaceState(routeState(false), '', location.href);
+    }
+    if (page === next && !fromHistory) return;
+    page = next;
+    if (!fromHistory) history.pushState(routeState(), '', location.href);
+    document.querySelectorAll('[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page));
+    render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function pushOverlayState() {
+    if (overlayOpen) closeModal(false);
+    if (history.state?.ruangArus && history.state.overlay) history.replaceState(routeState(false), '', location.href);
+    history.pushState(routeState(true), '', location.href);
+    overlayOpen = true;
+  }
   const monthTransactions = () => data.transactions.filter(inSelectedMonth);
   const monthBusiness = () => data.business.filter(inSelectedMonth);
   const txIcon = tx => tx.type === 'income' ? '↙' : '↗';
@@ -151,13 +170,19 @@
     document.querySelectorAll('[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page));
   }
   function modal(title, subtitle, content, onSubmit, submitLabel = 'Simpan catatan') {
+    pushOverlayState();
     el('#modal-root').innerHTML = `<div class="modal-backdrop" data-dismiss="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header class="modal-header"><div><h2 id="modal-title">${title}</h2><p>${subtitle}</p></div><button class="modal-close" type="button" data-close-modal aria-label="Tutup">×</button></header><form id="active-form">${content}<footer class="modal-footer"><button class="button secondary" type="button" data-close-modal>Batal</button><button class="button" type="submit">${submitLabel}</button></footer></form></section></div>`;
     const root = el('#modal-root'); root.querySelector('[data-close-modal]').focus();
     root.querySelectorAll('[data-close-modal]').forEach(button => button.addEventListener('click', closeModal));
     root.querySelector('.modal-backdrop').addEventListener('click', event => { if (event.target === event.currentTarget) closeModal(); });
     root.querySelector('#active-form').addEventListener('submit', event => { event.preventDefault(); const fd = new FormData(event.currentTarget); if (onSubmit(fd) !== false) closeModal(); });
   }
-  function closeModal() { el('#modal-root').innerHTML = ''; }
+  function closeModal(navigateHistory = true) {
+    const shouldGoBack = navigateHistory && overlayOpen && history.state?.ruangArus && history.state.overlay;
+    overlayOpen = false;
+    el('#modal-root').innerHTML = '';
+    if (shouldGoBack) history.back();
+  }
   function selectOptions(options, selected = '') { return options.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
   function amountField(label, name, value = '') { return `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="number" min="0" step="1" inputmode="numeric" value="${value}" placeholder="0" required></div>`; }
   function openTransaction(type = 'expense', preset = null) {
@@ -224,6 +249,7 @@
     }, 'Simpan setoran');
   }
   function openQuickMenu() {
+    pushOverlayState();
     el('#modal-root').innerHTML = `<div class="modal-backdrop" data-dismiss="true"><section class="quick-menu" role="dialog" aria-modal="true" aria-labelledby="quick-title"><header><div><h2 id="quick-title">Tambah catatan</h2><p>Pilih jenis catatan yang ingin dibuat.</p></div><button class="modal-close" data-close-modal aria-label="Tutup">×</button></header><div class="quick-menu-grid"><button data-modal="transaction" data-type="income"><span>↓</span>Pemasukan</button><button data-modal="transaction" data-type="expense"><span>↑</span>Pengeluaran</button><button data-modal="business"><span>${investmentIcon}</span>Rekap usaha</button><button data-modal="savings-goal"><span>${rupiahCoinIcon}</span>Target tabungan</button><button data-modal="note"><span>${bookIcon}</span>Catatan</button><button data-action="photo-capture"><span>▧</span>Baca dari foto</button></div></section></div>`;
     const root = el('#modal-root'); root.querySelector('[data-close-modal]').focus(); root.querySelector('[data-close-modal]').addEventListener('click', closeModal); root.querySelector('.modal-backdrop').addEventListener('click', event => { if (event.target === event.currentTarget) closeModal(); });
   }
@@ -285,7 +311,7 @@
     const authButton = event.target.closest('[data-auth-mode]'); if (authButton) { event.preventDefault(); const form = authButton.closest('form'); if (form) accountSubmit(form, authButton.dataset.authMode); return; }
     const pageButton = event.target.closest('[data-page]'); if (pageButton) { setPage(pageButton.dataset.page); return; }
     const monthButton = event.target.closest('[data-month]'); if (monthButton) { monthOffset += Number(monthButton.dataset.month); render(); return; }
-    const tab = event.target.closest('[data-tab]'); if (tab) { personalTab = tab.dataset.tab; render(); return; }
+    const tab = event.target.closest('[data-tab]'); if (tab) { if (personalTab !== tab.dataset.tab) { personalTab = tab.dataset.tab; history.pushState(routeState(), '', location.href); render(); } return; }
     const modalButton = event.target.closest('[data-modal]'); if (modalButton) {
       const kind = modalButton.dataset.modal;
       if (kind === 'transaction') openTransaction(modalButton.dataset.type || 'expense');
@@ -336,7 +362,17 @@
       closeModal(); openTransaction('expense', { amount, title, category, entryMethod: 'photo-ocr' });
     } catch (error) { status.textContent = error.message; button.disabled = false; }
   }
+  window.addEventListener('popstate', event => {
+    const state = event.state;
+    if (overlayOpen && !state?.overlay) closeModal(false);
+    page = state?.ruangArus && ['dashboard', 'personal', 'business', 'savings', 'notes', 'settings'].includes(state.page) ? state.page : 'dashboard';
+    if (state?.ruangArus && ['activity', 'debt', 'advice'].includes(state.personalTab)) personalTab = state.personalTab;
+    if (state?.overlay && !el('#modal-root').firstElementChild) history.replaceState(routeState(false), '', location.href);
+    overlayOpen = Boolean(state?.overlay && el('#modal-root').firstElementChild);
+    render();
+  });
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
+  history.replaceState(routeState(), '', location.href);
   render();
 })();
 
