@@ -1,0 +1,15 @@
+{
+  "id": "./",
+  "name": "Ruang Arus: Keuangan pribadi & usaha",
+  "short_name": "Ruang Arus",
+  "description": "Catatan keuangan pribadi dan usaha dalam satu tempat.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5ef",
+  "theme_color": "#f6f5ef",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
+

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f5ef" />
+    <meta name="description" content="Catatan keuangan pribadi dan usaha dalam satu tempat." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./style.css" />
+    <title>Ruang Arus: Keuangan pribadi & usaha</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <button class="brand" type="button" data-page="dashboard" aria-label="Ruang Arus, ringkasan">
+          <span class="brand-copy"><strong>ruang arus</strong><small>keuangan yang tertata</small></span>
+        </button>
+        <div class="nav-label">MENU UTAMA</div>
+        <nav class="main-nav" aria-label="Navigasi utama">
+          <button data-page="dashboard" class="nav-item active"><span class="nav-icon">⌂</span><span>Ringkasan</span></button>
+          <button data-page="personal" class="nav-item"><span class="nav-icon">◷</span><span>Keuangan pribadi</span></button>
+          <button data-page="business" class="nav-item"><span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="7" r="3.2"/><path d="M8 5.5v3M6.8 6.4h2.1M4 20h16M7 17l4-4 3 2 5-6M15 9h4v4" /></svg></span><span>Keuangan usaha</span></button>
+          <button data-page="savings" class="nav-item"><span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><text x="12" y="15" text-anchor="middle" fill="currentColor" stroke="none" font-size="7" font-weight="700">Rp</text></svg></span><span>Tabungan</span></button>
+          <button data-page="notes" class="nav-item"><span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5c-2.1-1.8-5-2.2-8-1.1v12c3.1-1.1 5.9-.7 8 1.1m0-12c2.1-1.8 5-2.2 8-1.1v12c-3.1-1.1-5.9-.7-8 1.1m0-12v12" /></svg></span><span>Ruang catatan</span></button>
+        </nav>
+        <div class="sidebar-bottom"><div class="local-status"><span class="status-dot"></span><span><b>Tersimpan di perangkat</b><small>Data lokal · offline siap</small></span></div><button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span><span>Pengaturan & data</span></button></div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar"><div class="mobile-brand"><strong>ruang arus</strong></div><div class="topbar-context" id="top-context">Ringkasan keuangan</div><div class="topbar-right"><span class="today-label" id="today-label"></span></div></header>
+        <div id="page-content" class="page-content"></div>
+      </main>
+    </div>
+    <nav class="mobile-nav" aria-label="Navigasi ponsel">
+      <button data-page="dashboard" class="active" aria-label="Beranda"><span aria-hidden="true">⌂</span><span>Beranda</span></button>
+      <button data-page="personal" aria-label="Pribadi"><span aria-hidden="true">◷</span><span>Pribadi</span></button>
+      <button data-page="business" aria-label="Usaha"><span aria-hidden="true"><svg class="nav-svg" viewBox="0 0 24 24"><circle cx="8" cy="7" r="3.2"/><path d="M8 5.5v3M6.8 6.4h2.1M4 20h16M7 17l4-4 3 2 5-6M15 9h4v4" /></svg></span><span>Usaha</span></button>
+      <button data-page="savings" aria-label="Tabungan"><span aria-hidden="true"><svg class="nav-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><text x="12" y="15" text-anchor="middle" fill="currentColor" stroke="none" font-size="7" font-weight="700">Rp</text></svg></span><span>Tabungan</span></button>
+      <button class="nav-plus" data-action="quick-menu" aria-label="Tambah catatan">＋</button>
+    </nav>
+    <div id="modal-root"></div>
+    <script src="./app.js"></script>
+    <script>if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(() => {});</script>
+  </body>
+</html>
+
