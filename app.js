@@ -3,7 +3,7 @@
   const today = new Date();
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
-    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {},
+    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [],
     categories: { income: ['Gaji', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   let data = load();
@@ -30,10 +30,11 @@
     try {
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!stored || typeof stored !== 'object') return structuredClone(defaults);
-      return { ...structuredClone(defaults), ...stored, categories: { ...defaults.categories, ...(stored.categories || {}) } };
+      return { ...structuredClone(defaults), ...stored, syncDeleted: stored.syncDeleted || [], categories: { ...defaults.categories, ...(stored.categories || {}) } };
     } catch { return structuredClone(defaults); }
   }
-  function save() { localStorage.setItem(KEY, JSON.stringify(data)); render(); }
+  let syncTimer;
+  function save() { localStorage.setItem(KEY, JSON.stringify(data)); render(); if (window.RuangBackend?.enabled()) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncCloud(false), 900); } }
   function setPage(next) { page = next; document.querySelectorAll('[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page)); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   const monthTransactions = () => data.transactions.filter(inSelectedMonth);
   const monthBusiness = () => data.business.filter(inSelectedMonth);
@@ -132,9 +133,12 @@
   }
   function settings() {
     const groups = [['income', 'Kategori pemasukan'], ['expense', 'Kategori pengeluaran'], ['debt', 'Kategori cicilan']];
+    const account = window.RuangBackend.session();
+    const accountBlock = account?.user ? `<section class="panel settings-block"><h2>Akun & sinkronisasi antarponsel</h2><p>Masuk dengan akun yang sama di kedua ponsel. Sinkronisasi menggabungkan catatan dengan ID yang sama agar transaksi baru dari perangkat lain tidak hilang.</p><div class="info-box sync"><strong>${escapeHtml(account.user.email || 'Akun Ruang Arus')}</strong>${window.RuangBackend.enabled() ? 'Sinkronisasi cloud aktif. Perubahan dikirim setelah disimpan; tekan Sinkronkan sekarang di perangkat lain untuk mengambil perubahan terbaru.' : 'Akun tersambung, tetapi data belum diizinkan untuk diunggah. Aktifkan setelah membaca persetujuan di bawah.'}</div>${!window.RuangBackend.enabled() ? `<div class="consent-box"><label><input id="cloud-consent" type="checkbox"> Saya setuju mengirim catatan keuangan pada perangkat ini ke Supabase Ruang Arus (region Singapura), agar bisa diakses melalui akun saya di perangkat lain. Data hanya dapat dibaca setelah login dan tidak akan dimasukkan ke repositori aplikasi.</label><button class="button" data-action="enable-cloud" style="margin-top:12px">Aktifkan sinkronisasi</button></div>` : `<div class="toolbar" style="margin-top:14px"><button class="button" data-action="sync-now">↻ Sinkronkan sekarang</button><button class="button secondary" data-action="wa-code">Buat kode tautan WhatsApp</button><button class="button quiet" data-action="sign-out">Keluar akun</button></div><p id="whatsapp-code-result" class="field-hint"></p>`}</section>` : `<section class="panel settings-block"><h2>Akun & sinkronisasi antarponsel</h2><p>Buat akun dengan email dan kata sandi lalu gunakan akun yang sama di kedua ponsel. Catatan yang ada tetap hanya di perangkat sampai Anda memberi persetujuan unggah.</p><form id="account-form" class="account-form"><div class="field"><label for="account-email">Email</label><input id="account-email" name="email" type="email" autocomplete="email" required></div><div class="field"><label for="account-password">Kata sandi</label><input id="account-password" name="password" type="password" autocomplete="current-password" minlength="8" required><small>Minimal 8 karakter. Kata sandi tidak disimpan oleh aplikasi.</small></div><div class="toolbar"><button class="button" type="submit" data-auth-mode="signin">Masuk</button><button class="button secondary" type="submit" data-auth-mode="signup">Buat akun</button></div><p id="account-message" class="field-hint" aria-live="polite"></p></form></section>`;
     return `${pageHead('Pengaturan & data', 'Atur kategori dan kelola salinan data Anda.')}
+      ${accountBlock}
       <section class="panel settings-block"><h2>Kategori pencatatan</h2><p>Sesuaikan dengan istilah yang paling mudah Anda kenali. Menghapus kategori tidak menghapus catatan lama.</p><div class="category-settings">${groups.map(([key, label]) => `<div class="category-group"><div class="category-group-head"><strong>${label}</strong><button class="button secondary small" data-modal="category" data-group="${key}">＋ Tambah kategori</button></div><div class="category-pills">${data.categories[key].map((item, index) => `<span class="category-pill">${escapeHtml(item)}${index > 0 ? `<button data-action="delete-category" data-group="${key}" data-index="${index}" aria-label="Hapus kategori ${escapeHtml(item)}">×</button>` : ''}</span>`).join('')}</div></div>`).join('')}</div></section>
-      <section class="panel settings-block"><h2>Cadangan & pemindahan data</h2><p>Unduh salinan lengkap untuk disimpan. Pada ponsel lain, impor berkas ini untuk menyalin catatan ke perangkat tersebut.</p><div class="info-box sync"><strong>Data belum disinkronkan otomatis</strong>Setiap ponsel menyimpan data di browser masing-masing. Cadangan dan impor adalah cara memindahkan data saat ini; perubahan berikutnya tidak ikut tersinkron otomatis.</div><div class="toolbar" style="margin-top:15px"><button class="button" data-action="export">↓ Unduh cadangan</button><button class="button secondary" data-action="import">↑ Impor cadangan</button><input id="import-file" type="file" accept="application/json,.json" hidden></div></section>
+      <section class="panel settings-block"><h2>Cadangan & pemindahan data</h2><p>Unduh salinan lengkap untuk arsip. Cadangan tetap disarankan walau sinkronisasi aktif.</p><div class="toolbar" style="margin-top:15px"><button class="button" data-action="export">↓ Unduh cadangan</button><button class="button secondary" data-action="import">↑ Impor cadangan</button><input id="import-file" type="file" accept="application/json,.json" hidden></div></section>
       <section class="panel settings-block"><h2>Pasang aplikasi di ponsel</h2><p>Buka situs HTTPS ini di kedua ponsel agar Ruang Arus bisa dipasang ke layar utama dan dibuka seperti aplikasi.</p><div class="info-box sync"><strong>Android</strong>Buka melalui Chrome, tekan menu browser, lalu pilih Install app atau Tambahkan ke layar utama.<br><br><strong>iPhone</strong>Buka melalui Safari, tekan Bagikan, lalu pilih Tambahkan ke Layar Utama.</div></section>
       <section class="panel settings-block"><h2>Pengingat penyimpanan</h2><p>Data tersimpan di browser pada perangkat ini. Menghapus data browser atau memakai mode privat dapat menghilangkan catatan yang belum dicadangkan.</p><div class="info-box"><strong>Cadangkan secara berkala</strong>Setelah mengunduh, simpan berkas cadangan di tempat yang aman dan mudah Anda temukan kembali.</div></section>`;
   }
@@ -156,9 +160,47 @@
   function closeModal() { el('#modal-root').innerHTML = ''; }
   function selectOptions(options, selected = '') { return options.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
   function amountField(label, name, value = '') { return `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="number" min="0" step="1" inputmode="numeric" value="${value}" placeholder="0" required></div>`; }
-  function openTransaction(type = 'expense') {
+  function openTransaction(type = 'expense', preset = null) {
     const isIncome = type === 'income'; const group = isIncome ? 'income' : 'expense';
-    modal(isIncome ? 'Catat pemasukan' : 'Catat pengeluaran', isIncome ? 'Simpan gaji atau pemasukan lain yang Anda terima.' : 'Simpan pengeluaran agar alur uang harian tetap jelas.', `<div class="form-grid"><div class="field full"><label for="tx-title">Keterangan</label><input id="tx-title" name="title" maxlength="80" placeholder="Contoh: Gaji bulan November" required></div><div class="field"><label for="tx-category">Kategori</label><select id="tx-category" name="category">${selectOptions(data.categories[group])}</select></div><div class="field"><label for="tx-date">Tanggal</label><input id="tx-date" name="date" type="date" value="${isoToday}" required></div><div class="field full"><label for="tx-amount">Jumlah (rupiah)</label><input id="tx-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" placeholder="0" required></div><div class="field full"><label for="tx-note">Catatan tambahan <span class="field-hint">(opsional)</span></label><input id="tx-note" name="note" maxlength="180" placeholder="Tambahkan detail bila perlu"></div></div>`, fd => { data.transactions.push({ id: crypto.randomUUID(), type, title: fd.get('title').trim(), category: fd.get('category'), date: fd.get('date'), amount: Number(fd.get('amount')), note: fd.get('note').trim(), created: new Date().toISOString() }); save(); });
+    modal(isIncome ? 'Catat pemasukan' : 'Catat pengeluaran', isIncome ? 'Simpan gaji atau pemasukan lain yang Anda terima.' : 'Simpan pengeluaran agar alur uang harian tetap jelas.', `<div class="form-grid"><div class="field full"><label for="tx-title">Keterangan</label><input id="tx-title" name="title" maxlength="80" value="${escapeHtml(preset?.title || '')}" placeholder="Contoh: Gaji bulan November" required></div><div class="field"><label for="tx-category">Kategori</label><select id="tx-category" name="category">${selectOptions(data.categories[group], preset?.category || '')}</select></div><div class="field"><label for="tx-date">Tanggal</label><input id="tx-date" name="date" type="date" value="${preset?.date || isoToday}" required></div><div class="field full"><label for="tx-amount">Jumlah (rupiah)</label><input id="tx-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${preset?.amount || ''}" placeholder="0" required></div><div class="field full"><label for="tx-note">Catatan tambahan <span class="field-hint">(opsional)</span></label><input id="tx-note" name="note" maxlength="180" placeholder="Tambahkan detail bila perlu"></div></div>`, fd => { data.transactions.push({ id: crypto.randomUUID(), type, title: fd.get('title').trim(), category: fd.get('category'), date: fd.get('date'), amount: Number(fd.get('amount')), note: fd.get('note').trim(), entryMethod: preset?.entryMethod || 'manual', created: new Date().toISOString() }); save(); });
+  }
+  function openPhotoCapture() {
+    modal('Baca dari foto', 'Pilih foto atau screenshot struk. Gambar dianalisis di browser pada perangkat ini dan tidak diunggah.', `<div class="field"><label for="receipt-image">Foto atau screenshot</label><input id="receipt-image" type="file" accept="image/*" capture="environment" required><small>Untuk hasil terbaik, pastikan nominal dan teks struk terbaca.</small></div><div id="ocr-status" class="info-box sync" style="margin-top:14px">OCR bahasa Indonesia memerlukan koneksi internet saat pertama kali memuat mesin baca.</div>`, () => false, 'Tutup');
+    const root = el('#modal-root');
+    root.querySelector('.modal-footer').innerHTML = '<button class="button secondary" type="button" data-close-modal>Tutup</button><button class="button" type="button" data-action="read-photo">Baca foto</button>';
+    root.querySelector('[data-close-modal]').addEventListener('click', closeModal);
+  }
+  function mergeSnapshot(local, remote) {
+    const merged = { ...structuredClone(defaults), ...local, categories: { ...defaults.categories, ...(local.categories || {}) } };
+    const deleted = new Set([...(local.syncDeleted || []), ...(remote.syncDeleted || [])]); merged.syncDeleted = [...deleted];
+    const keys = ['transactions', 'business', 'installments', 'notes', 'savingsGoals', 'savingsTransfers'];
+    for (const key of keys) {
+      const all = new Map();
+      for (const item of [...(remote[key] || []), ...(local[key] || [])]) if (!deleted.has(item.id)) all.set(item.id, item);
+      merged[key] = [...all.values()];
+    }
+    merged.categories = Object.fromEntries(Object.keys(defaults.categories).map(key => [key, [...new Set([...(remote.categories?.[key] || []), ...(local.categories?.[key] || [])])]]));
+    merged.budgets = { ...(remote.budgets || {}), ...(local.budgets || {}) };
+    return merged;
+  }
+  async function syncCloud(announce = true) {
+    if (!window.RuangBackend.enabled()) return;
+    try {
+      const row = await window.RuangBackend.getSnapshot();
+      if (row?.payload) data = mergeSnapshot(data, row.payload);
+      await window.RuangBackend.putSnapshot(data);
+      localStorage.setItem(KEY, JSON.stringify(data)); render();
+      if (announce) alert('Sinkronisasi selesai. Perangkat ini dan cloud sudah digabungkan.');
+    } catch (error) { if (announce) alert(`Sinkronisasi belum berhasil: ${error.message}`); }
+  }
+  function accountSubmit(form, mode) {
+    const fd = new FormData(form), msg = form.querySelector('#account-message');
+    msg.textContent = 'Menghubungkan ke layanan akun…';
+    const fn = mode === 'signup' ? window.RuangBackend.signUp : window.RuangBackend.signIn;
+    fn(fd.get('email').trim(), fd.get('password')).then(result => {
+      if (!result.access_token) { msg.textContent = 'Akun dibuat. Periksa email untuk konfirmasi, lalu kembali dan masuk.'; return; }
+      render();
+    }).catch(error => { msg.textContent = error.message; });
   }
   function openBudget() {
     const current = Number(data.budgets[selectedMonth()] || 0);
@@ -182,7 +224,7 @@
     }, 'Simpan setoran');
   }
   function openQuickMenu() {
-    el('#modal-root').innerHTML = `<div class="modal-backdrop" data-dismiss="true"><section class="quick-menu" role="dialog" aria-modal="true" aria-labelledby="quick-title"><header><div><h2 id="quick-title">Tambah catatan</h2><p>Pilih jenis catatan yang ingin dibuat.</p></div><button class="modal-close" data-close-modal aria-label="Tutup">×</button></header><div class="quick-menu-grid"><button data-modal="transaction" data-type="income"><span>↓</span>Pemasukan</button><button data-modal="transaction" data-type="expense"><span>↑</span>Pengeluaran</button><button data-modal="business"><span>${investmentIcon}</span>Rekap usaha</button><button data-modal="savings-goal"><span>${rupiahCoinIcon}</span>Target tabungan</button><button data-modal="note"><span>${bookIcon}</span>Catatan</button></div></section></div>`;
+    el('#modal-root').innerHTML = `<div class="modal-backdrop" data-dismiss="true"><section class="quick-menu" role="dialog" aria-modal="true" aria-labelledby="quick-title"><header><div><h2 id="quick-title">Tambah catatan</h2><p>Pilih jenis catatan yang ingin dibuat.</p></div><button class="modal-close" data-close-modal aria-label="Tutup">×</button></header><div class="quick-menu-grid"><button data-modal="transaction" data-type="income"><span>↓</span>Pemasukan</button><button data-modal="transaction" data-type="expense"><span>↑</span>Pengeluaran</button><button data-modal="business"><span>${investmentIcon}</span>Rekap usaha</button><button data-modal="savings-goal"><span>${rupiahCoinIcon}</span>Target tabungan</button><button data-modal="note"><span>${bookIcon}</span>Catatan</button><button data-action="photo-capture"><span>▧</span>Baca dari foto</button></div></section></div>`;
     const root = el('#modal-root'); root.querySelector('[data-close-modal]').focus(); root.querySelector('[data-close-modal]').addEventListener('click', closeModal); root.querySelector('.modal-backdrop').addEventListener('click', event => { if (event.target === event.currentTarget) closeModal(); });
   }
   function openBusiness() {
@@ -222,7 +264,7 @@
       data.categories[group].push(name); save();
     }, 'Tambah kategori');
   }
-  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { data[collection] = data[collection].filter(item => item.id !== id); save(); } }
+  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { data[collection] = data[collection].filter(item => item.id !== id); data.syncDeleted ||= []; data.syncDeleted.push(id); save(); } }
   function exportData() {
     const payload = { ...data, exportedAt: new Date().toISOString(), app: 'ruang-arus' };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `cadangan-ruang-arus-${isoToday}.json`; a.click(); URL.revokeObjectURL(url);
@@ -240,6 +282,7 @@
     reader.readAsText(file);
   }
   document.addEventListener('click', event => {
+    const authButton = event.target.closest('[data-auth-mode]'); if (authButton) { event.preventDefault(); const form = authButton.closest('form'); if (form) accountSubmit(form, authButton.dataset.authMode); return; }
     const pageButton = event.target.closest('[data-page]'); if (pageButton) { setPage(pageButton.dataset.page); return; }
     const monthButton = event.target.closest('[data-month]'); if (monthButton) { monthOffset += Number(monthButton.dataset.month); render(); return; }
     const tab = event.target.closest('[data-tab]'); if (tab) { personalTab = tab.dataset.tab; render(); return; }
@@ -261,12 +304,38 @@
     if (name === 'add-saving') { const goal = data.savingsGoals.find(x => x.id === id); if (goal) openSavingTransfer(goal); }
     if (name === 'delete-goal') { if (confirm('Hapus target ini beserta riwayat setoran terkait?')) { data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); save(); } }
     if (name === 'quick-menu') openQuickMenu();
+    if (name === 'photo-capture') openPhotoCapture();
+    if (name === 'enable-cloud') {
+      if (!el('#cloud-consent')?.checked) { alert('Centang persetujuan terlebih dahulu.'); return; }
+      window.RuangBackend.setEnabled(true); syncCloud(true); render();
+    }
+    if (name === 'sync-now') syncCloud(true);
+    if (name === 'sign-out') { if (confirm('Keluar dari akun ini? Salinan cloud tetap tersimpan.')) window.RuangBackend.signOut().then(render); }
+    if (name === 'wa-code') window.RuangBackend.makeLinkCode().then(code => { const target = el('#whatsapp-code-result'); if (target) target.textContent = `Kirim “hubungkan ${code}” ke nomor WhatsApp Business bot Anda dalam 15 menit.`; }).catch(error => alert(error.message));
+    if (name === 'read-photo') readPhoto();
     if (name === 'toggle-amounts') { amountsHidden = !amountsHidden; render(); }
     if (name === 'clear-budget') { delete data.budgets[selectedMonth()]; save(); closeModal(); }
     if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0 && confirm('Hapus kategori ini? Catatan lama tetap tersimpan.')) { data.categories[group].splice(Number(index), 1); save(); } }
     if (name === 'export') exportData(); if (name === 'import') el('#import-file').click();
   });
   document.addEventListener('change', event => { if (event.target.id === 'import-file') importData(event.target.files?.[0]); });
+  async function readPhoto() {
+    const file = el('#receipt-image')?.files?.[0]; if (!file) { alert('Pilih foto atau screenshot dahulu.'); return; }
+    const status = el('#ocr-status'); const button = el('[data-action="read-photo"]'); button.disabled = true; status.textContent = 'Memuat pembaca teks dan memeriksa foto…';
+    try {
+      if (!window.Tesseract) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js'; script.onload = resolve; script.onerror = () => reject(new Error('Pembaca OCR tidak dapat dimuat. Periksa koneksi internet.')); document.head.appendChild(script); });
+      const worker = await window.Tesseract.createWorker('ind');
+      const result = await worker.recognize(file); await worker.terminate();
+      const text = result.data.text || '';
+      const matches = [...text.matchAll(/(?:rp\s*)?([0-9][0-9.,\s]{2,})/gi)].map(m => Number(m[1].replace(/\D/g, ''))).filter(n => n >= 100);
+      if (!matches.length) throw new Error('Nominal belum terbaca. Coba foto yang lebih jelas atau isi manual.');
+      const amount = Math.max(...matches);
+      const lines = text.split(/\r?\n/).map(x => x.trim()).filter(x => x.length > 2 && !/\d{3,}|total|subtotal|tunai|kembali|rp\b/i.test(x));
+      const title = lines[0] ? `Pembelian · ${lines[0].slice(0, 48)}` : 'Pembelian dari struk';
+      const category = /bensin|pertalite|pertamax/i.test(text) ? 'Bensin' : /kopi|es|snack|jajan/i.test(text) ? 'Jajan' : /makan|resto|warung|nasi/i.test(text) ? 'Makan' : 'Lainnya';
+      closeModal(); openTransaction('expense', { amount, title, category, entryMethod: 'photo-ocr' });
+    } catch (error) { status.textContent = error.message; button.disabled = false; }
+  }
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
   render();
 })();
