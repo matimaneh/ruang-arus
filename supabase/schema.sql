@@ -31,6 +31,8 @@ create table public.whatsapp_links (
 alter table public.whatsapp_links enable row level security;
 revoke all on public.whatsapp_links from public, anon, authenticated;
 grant all on public.whatsapp_links to service_role;
+create policy "No direct access to WhatsApp links" on public.whatsapp_links
+  for all to anon, authenticated using (false) with check (false);
 
 create table public.whatsapp_link_codes (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -62,9 +64,12 @@ create table public.whatsapp_pending (
   completed_at timestamptz
 );
 create index whatsapp_pending_owner_recent on public.whatsapp_pending (wa_id, created_at desc) where state = 'pending';
+create index whatsapp_pending_user_id on public.whatsapp_pending (user_id);
 alter table public.whatsapp_pending enable row level security;
 revoke all on public.whatsapp_pending from public, anon, authenticated;
 grant all on public.whatsapp_pending to service_role;
+create policy "No direct access to WhatsApp pending messages" on public.whatsapp_pending
+  for all to anon, authenticated using (false) with check (false);
 
 create table public.whatsapp_events (
   message_id text primary key,
@@ -77,4 +82,6 @@ create table public.whatsapp_events (
 alter table public.whatsapp_events enable row level security;
 revoke all on public.whatsapp_events from public, anon, authenticated;
 grant all on public.whatsapp_events to service_role;
+create policy "No direct access to WhatsApp events" on public.whatsapp_events
+  for all to anon, authenticated using (false) with check (false);
 
