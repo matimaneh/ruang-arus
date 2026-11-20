@@ -4,7 +4,7 @@
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
     transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [],
-    categories: { income: ['Gaji', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
+    categories: { income: ['Gaji', 'Pendapatan usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   let data = load();
   let page = 'dashboard';
@@ -255,10 +255,24 @@
   }
   function openBusiness() {
     const existing = data.business.find(x => x.date === isoToday);
-    modal(existing ? 'Perbarui rekap hari ini' : 'Catat keuangan usaha', 'Masukkan angka harian. Laba bersih dihitung dari omset dikurangi HPP dan biaya.', `<div class="form-grid"><div class="field full"><label for="business-date">Tanggal rekap</label><input id="business-date" name="date" type="date" value="${existing?.date || isoToday}" required></div>${amountField('Total omset', 'turnover', existing?.turnover || '')}${amountField('HPP', 'hpp', existing?.hpp || '')}${amountField('Biaya per hari', 'cost', existing?.cost || '')}<div class="field full"><label for="business-note">Catatan <span class="field-hint">(opsional)</span></label><input id="business-note" name="note" maxlength="150" value="${escapeHtml(existing?.note || '')}" placeholder="Contoh: ramai saat makan siang"></div></div>`, fd => {
+    modal(existing ? 'Perbarui rekap hari ini' : 'Catat keuangan usaha', 'Laba bersih usaha dihitung setelah HPP dan biaya. Omset dikurangi HPP otomatis dicatat sebagai pendapatan usaha di ruang pribadi.', `<div class="form-grid"><div class="field full"><label for="business-date">Tanggal rekap</label><input id="business-date" name="date" type="date" value="${existing?.date || isoToday}" required></div>${amountField('Total omset', 'turnover', existing?.turnover || '')}${amountField('HPP', 'hpp', existing?.hpp || '')}${amountField('Biaya per hari', 'cost', existing?.cost || '')}<div class="field full"><label for="business-note">Catatan <span class="field-hint">(opsional)</span></label><input id="business-note" name="note" maxlength="150" value="${escapeHtml(existing?.note || '')}" placeholder="Contoh: ramai saat makan siang"></div></div>`, fd => {
       const date = fd.get('date'); const previous = data.business.findIndex(x => x.date === date);
-      const entry = { id: previous >= 0 ? data.business[previous].id : crypto.randomUUID(), date, turnover: Number(fd.get('turnover')), hpp: Number(fd.get('hpp')), cost: Number(fd.get('cost')), note: fd.get('note').trim() };
-      if (previous >= 0) data.business[previous] = entry; else data.business.push(entry); save();
+      const oldEntry = previous >= 0 ? data.business[previous] : null;
+      const entry = { ...oldEntry, id: oldEntry?.id || crypto.randomUUID(), date, turnover: Number(fd.get('turnover')), hpp: Number(fd.get('hpp')), cost: Number(fd.get('cost')), note: fd.get('note').trim() };
+      if (previous >= 0) data.business[previous] = entry; else data.business.push(entry);
+      const personalIncome = data.transactions.find(tx => tx.id === entry.personalIncomeId || tx.businessEntryId === entry.id);
+      const grossProfit = entry.turnover - entry.hpp;
+      if (grossProfit > 0) {
+        const tx = { id: personalIncome?.id || crypto.randomUUID(), type: 'income', title: `Keuntungan usaha · ${dateLabel(date, { day: 'numeric', month: 'short' })}`, category: 'Pendapatan usaha', date, amount: grossProfit, note: `Omset ${money(entry.turnover)} − HPP ${money(entry.hpp)}. Biaya harian dicatat terpisah di ruang usaha.`, source: 'Usaha', entryMethod: 'business', businessEntryId: entry.id, created: personalIncome?.created || new Date().toISOString() };
+        if (personalIncome) data.transactions[data.transactions.indexOf(personalIncome)] = tx; else data.transactions.push(tx);
+        entry.personalIncomeId = tx.id;
+        data.syncDeleted = (data.syncDeleted || []).filter(id => id !== tx.id);
+      } else if (personalIncome) {
+        data.transactions = data.transactions.filter(tx => tx.id !== personalIncome.id);
+        data.syncDeleted ||= []; data.syncDeleted.push(personalIncome.id); delete entry.personalIncomeId;
+      }
+      if (!data.categories.income.includes('Pendapatan usaha')) data.categories.income.push('Pendapatan usaha');
+      save();
     });
   }
   function openInstallment() {
@@ -290,7 +304,7 @@
       data.categories[group].push(name); save();
     }, 'Tambah kategori');
   }
-  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { data[collection] = data[collection].filter(item => item.id !== id); data.syncDeleted ||= []; data.syncDeleted.push(id); save(); } }
+  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { const removed = data[collection].find(item => item.id === id); data[collection] = data[collection].filter(item => item.id !== id); data.syncDeleted ||= []; data.syncDeleted.push(id); if (collection === 'business' && removed?.personalIncomeId) { data.transactions = data.transactions.filter(tx => tx.id !== removed.personalIncomeId); data.syncDeleted.push(removed.personalIncomeId); } save(); } }
   function exportData() {
     const payload = { ...data, exportedAt: new Date().toISOString(), app: 'ruang-arus' };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `cadangan-ruang-arus-${isoToday}.json`; a.click(); URL.revokeObjectURL(url);
