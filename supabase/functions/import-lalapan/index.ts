@@ -76,7 +76,6 @@ Deno.serve(async (request: Request) => {
   const userId = userPage.users[0].id;
   const businessId = `lalapan-${date}`;
   const incomeId = `lalapan-income-${date}`;
-  const grossProfit = sales - recipeCost;
   const importedAt = new Date().toISOString();
   const dateForTitle = new Intl.DateTimeFormat("id-ID", {
     day: "numeric", month: "short", timeZone: "Asia/Makassar",
@@ -90,7 +89,7 @@ Deno.serve(async (request: Request) => {
     cost: operatingCost,
     note: `Rekap otomatis dari Lalapan Legenda. Laba bersih: Rp ${rupiah(sourceNet)}.`,
     source: "lalapan-legenda",
-    personalIncomeId: grossProfit > 0 ? incomeId : null,
+    personalIncomeId: sourceNet > 0 ? incomeId : null,
   };
   const rows: Array<Record<string, unknown>> = [{
     user_id: userId,
@@ -101,7 +100,7 @@ Deno.serve(async (request: Request) => {
     updated_at: importedAt,
   }];
 
-  if (grossProfit > 0) {
+  if (sourceNet > 0) {
     rows.push({
       user_id: userId,
       record_type: "transaction",
@@ -109,11 +108,11 @@ Deno.serve(async (request: Request) => {
       payload: {
         id: incomeId,
         type: "income",
-        title: `Keuntungan usaha · ${dateForTitle}`,
-        category: "Pendapatan usaha",
+        title: `Laba bersih usaha · ${dateForTitle}`,
+        category: "Pendapatan laba usaha",
         date,
-        amount: grossProfit,
-        note: `Omzet Rp ${rupiah(sales)} − HPP Rp ${rupiah(recipeCost)}. Diimpor otomatis dari Lalapan Legenda.`,
+        amount: sourceNet,
+        note: `Omzet Rp ${rupiah(sales)} − HPP Rp ${rupiah(recipeCost)} − biaya Rp ${rupiah(operatingCost)} = laba bersih Rp ${rupiah(sourceNet)}. Diimpor otomatis dari Lalapan Legenda.`,
         source: "Usaha",
         entryMethod: "business",
         businessEntryId: businessId,
@@ -141,5 +140,5 @@ Deno.serve(async (request: Request) => {
     return json({ error: "Rekap belum berhasil disimpan." }, 500);
   }
 
-  return json({ ok: true, date, businessImported: true, personalIncomeImported: grossProfit > 0 });
+  return json({ ok: true, date, businessImported: true, personalIncomeImported: sourceNet > 0 });
 });
