@@ -15,7 +15,7 @@ Buka `http://localhost:4173`.
 - Dashboard ringkasan pemasukan, pengeluaran, sisa cicilan, tabungan, dan laba usaha.
 - Pemasukan/pengeluaran dengan kategori, cicilan beserta pembayaran, target dan setoran tabungan, serta budget bulanan.
 - Rekap usaha harian berupa omset, HPP, biaya, dan laba bersih. Setiap rekap otomatis mencatat omset dikurangi HPP satu kali sebagai pemasukan pribadi berkategori Pendapatan usaha; biaya harian tetap dicatat terpisah.
-- Ruang catatan, ekspor/impor JSON, dukungan offline, dan instalasi PWA.
+- Ruang catatan yang bisa dibuka untuk membaca isi lengkap, detail transaksi dari riwayat pribadi, ekspor/impor JSON, dukungan offline, dan instalasi PWA.
 - Pembacaan foto/screenshot struk melalui OCR bahasa Indonesia di browser. Foto diproses pada perangkat dan tidak dikirim ke Supabase atau penyedia AI; mesin OCR dan data bahasa diunduh dari jsDelivr saat pertama digunakan.
 - Akun Supabase Auth dan sinkronisasi cloud. Pengguna harus mencentang persetujuan sebelum data keuangan lokal diunggah. Perubahan berikutnya dikirim otomatis setelah tersimpan; tombol sinkronisasi mengambil catatan dari perangkat lain.
 - Webhook WhatsApp Business Cloud API menerima catatan teks dengan format sederhana, membuat draf, meminta `SIMPAN`/`BATAL`, dan mengirim kuitansi ringkas setelah dicatat.
