@@ -1,5 +1,3 @@
-Warning: fs was declared with const; use let for reassignable variables.
-Warning: src was declared with const; use let for reassignable variables.
 (() => {
   const KEY = 'ruang-arus-data-v1';
   const today = new Date();
