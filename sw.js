@@ -1,7 +1,5 @@
-Warning: fs was declared with const; use let for reassignable variables.
-Warning: src was declared with const; use let for reassignable variables.
-const CACHE = 'ruang-arus-v23';
-const CORE = ['./', './index.html?v=23', './style.css?v=23', './app.js?v=23', './backend.js?v=23', './backend-config.js?v=23', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'ruang-arus-v24';
+const CORE = ['./', './index.html?v=24', './style.css?v=24', './app.js?v=24', './backend.js?v=24', './backend-config.js?v=24', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {
