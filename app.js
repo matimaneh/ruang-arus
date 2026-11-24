@@ -65,7 +65,7 @@
     const rows = [...items].sort((a, b) => b.date.localeCompare(a.date) || (b.created || '').localeCompare(a.created || ''));
     const shown = limit ? rows.slice(0, limit) : rows;
     if (!shown.length) return empty('◷', 'Belum ada aktivitas tercatat', 'Mulai dengan mencatat pemasukan atau pengeluaran pertama Anda.');
-    return `<div class="transaction-list">${shown.map(tx => `<div class="transaction-row"><div class="tx-mark ${tx.type === 'expense' ? 'expense' : ''}">${txIcon(tx)}</div><div class="tx-meta"><div class="tx-title">${escapeHtml(tx.title || tx.category)}</div><div class="tx-detail">${escapeHtml(tx.category)} · ${dateLabel(tx.date)}</div></div><div class="tx-amount ${tx.type === 'expense' ? 'negative' : ''}">${tx.type === 'expense' ? '−' : '+'}${money(tx.amount)}</div>${page !== 'dashboard' ? `<div class="row-actions"><button data-action="delete-tx" data-id="${tx.id}" aria-label="Hapus catatan">×</button></div>` : ''}</div>`).join('')}</div>`;
+    return `<div class="transaction-list">${shown.map(tx => `<div class="transaction-row"><div class="tx-mark ${tx.type === 'expense' ? 'expense' : ''}">${txIcon(tx)}</div><button type="button" class="tx-meta tx-open" data-action="open-tx" data-id="${tx.id}" aria-label="Buka rincian ${escapeHtml(tx.title || tx.category)}"><span class="tx-title">${escapeHtml(tx.title || tx.category)}</span><span class="tx-detail">${escapeHtml(tx.category)} · ${dateLabel(tx.date)}</span></button><div class="tx-amount ${tx.type === 'expense' ? 'negative' : ''}">${tx.type === 'expense' ? '−' : '+'}${money(tx.amount)}</div>${page !== 'dashboard' ? `<div class="row-actions"><button data-action="delete-tx" data-id="${tx.id}" aria-label="Hapus catatan">×</button></div>` : ''}</div>`).join('')}</div>`;
   }
   function chart(items) {
     const period = monthDate();
@@ -148,7 +148,7 @@
   }
   function notes() {
     const notes = [...data.notes].sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
-    return `${pageHead('Ruang catatan', 'Simpan prompt, ide, tulisan, atau data penting dalam satu tempat.', `<button class="button" data-modal="note">＋ Catatan baru</button>`)}${notes.length ? `<div class="note-grid">${notes.map(note => `<article class="note-card"><h3>${escapeHtml(note.title || 'Tanpa judul')}</h3><p>${escapeHtml(note.body)}</p><div class="note-bottom"><span>Diubah ${dateLabel(note.updated, { day: 'numeric', month: 'short' })}</span><div class="note-tools"><button data-action="edit-note" data-id="${note.id}">Ubah</button><button data-action="delete-note" data-id="${note.id}">Hapus</button></div></div></article>`).join('')}</div>` : `<section class="panel">${empty(bookIcon, 'Ruang ini masih kosong', 'Tulis prompt, ide usaha, daftar belanja, atau apa pun yang ingin Anda simpan.', '<button class="button small" data-modal="note">＋ Tulis catatan</button>')}</section>`}`;
+    return `${pageHead('Ruang catatan', 'Simpan prompt, ide, tulisan, atau data penting dalam satu tempat.', `<button class="button" data-modal="note">＋ Catatan baru</button>`)}${notes.length ? `<div class="note-grid">${notes.map(note => `<article class="note-card"><h3>${escapeHtml(note.title || 'Tanpa judul')}</h3><p>${escapeHtml(note.body)}</p><div class="note-bottom"><span>Diubah ${dateLabel(note.updated, { day: 'numeric', month: 'short' })}</span><div class="note-tools"><button class="note-open" data-action="open-note" data-id="${note.id}">Buka</button><button data-action="edit-note" data-id="${note.id}">Ubah</button><button data-action="delete-note" data-id="${note.id}">Hapus</button></div></div></article>`).join('')}</div>` : `<section class="panel">${empty(bookIcon, 'Ruang ini masih kosong', 'Tulis prompt, ide usaha, daftar belanja, atau apa pun yang ingin Anda simpan.', '<button class="button small" data-modal="note">＋ Tulis catatan</button>')}</section>`}`;
   }
   function settings() {
     const groups = [['income', 'Kategori pemasukan'], ['expense', 'Kategori pengeluaran'], ['debt', 'Kategori cicilan']];
@@ -182,6 +182,21 @@
     overlayOpen = false;
     el('#modal-root').innerHTML = '';
     if (shouldGoBack) history.back();
+  }
+  function detailModal(title, subtitle, content, action = '') {
+    pushOverlayState();
+    el('#modal-root').innerHTML = `<div class="modal-backdrop" data-dismiss="true"><section class="modal detail-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header class="modal-header"><div><h2 id="modal-title">${escapeHtml(title)}</h2><p>${escapeHtml(subtitle)}</p></div><button class="modal-close" type="button" data-close-modal aria-label="Tutup">×</button></header><div class="detail-content">${content}</div><footer class="modal-footer">${action}<button class="button secondary" type="button" data-close-modal>Tutup</button></footer></section></div>`;
+    const root = el('#modal-root');
+    root.querySelectorAll('[data-close-modal]').forEach(button => button.addEventListener('click', () => closeModal()));
+    root.querySelector('.modal-backdrop').addEventListener('click', event => { if (event.target === event.currentTarget) closeModal(); });
+    root.querySelector('[data-close-modal]')?.focus();
+  }
+  function openTransactionDetails(tx) {
+    const label = tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran';
+    detailModal(tx.title || tx.category || 'Rincian transaksi', `${label} · ${dateLabel(tx.date)}`, `<div class="detail-amount ${tx.type === 'expense' ? 'negative' : ''}">${tx.type === 'expense' ? '−' : '+'}${money(tx.amount)}</div><dl class="detail-list"><div><dt>Kategori</dt><dd>${escapeHtml(tx.category || 'Lainnya')}</dd></div><div><dt>Tanggal</dt><dd>${dateLabel(tx.date)}</dd></div>${tx.source ? `<div><dt>Sumber dana</dt><dd>${escapeHtml(tx.source)}</dd></div>` : ''}${tx.entryMethod ? `<div><dt>Dicatat melalui</dt><dd>${escapeHtml(tx.entryMethod === 'photo-ocr' ? 'Baca dari foto' : tx.entryMethod === 'business' ? 'Rekap usaha' : tx.entryMethod)}</dd></div>` : ''}${tx.note ? `<div class="detail-note"><dt>Catatan</dt><dd>${escapeHtml(tx.note)}</dd></div>` : ''}</dl>`);
+  }
+  function openNoteDetails(note) {
+    detailModal(note.title || 'Tanpa judul', `Catatan · diubah ${dateLabel(note.updated, { day: 'numeric', month: 'long', year: 'numeric' })}`, `<div class="note-detail-body">${escapeHtml(note.body)}</div>`, `<button class="button" type="button" data-action="edit-note" data-id="${note.id}">Ubah catatan</button>`);
   }
   function selectOptions(options, selected = '') { return options.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
   function amountField(label, name, value = '') { return `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="number" min="0" step="1" inputmode="numeric" value="${value}" placeholder="0" required></div>`; }
@@ -335,11 +350,12 @@
     }
     const action = event.target.closest('[data-action]'); if (!action) return;
     const { action: name, id } = action.dataset;
+    if (name === 'open-tx') { const tx = data.transactions.find(item => item.id === id); if (tx) openTransactionDetails(tx); }
     if (name === 'delete-tx') remove(id, 'transactions', 'transaksi');
     if (name === 'delete-business') remove(id, 'business', 'rekap');
     if (name === 'delete-installment') remove(id, 'installments', 'cicilan');
     if (name === 'pay-installment') { const item = data.installments.find(x => x.id === id); if (item) payInstallment(item); }
-    if (name === 'edit-note') { const note = data.notes.find(x => x.id === id); if (note) openNote(note); }
+    if (name === 'open-note' || name === 'edit-note') { const note = data.notes.find(x => x.id === id); if (note) name === 'open-note' ? openNoteDetails(note) : openNote(note); }
     if (name === 'delete-note') remove(id, 'notes', 'catatan');
     if (name === 'add-saving') { const goal = data.savingsGoals.find(x => x.id === id); if (goal) openSavingTransfer(goal); }
     if (name === 'delete-goal') { if (confirm('Hapus target ini beserta riwayat setoran terkait?')) { data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); save(); } }
