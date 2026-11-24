@@ -410,7 +410,7 @@ Warning: src was declared with const; use let for reassignable variables.
     if (name === 'read-photo') readPhoto();
     if (name === 'toggle-amounts') { amountsHidden = !amountsHidden; render(); }
     if (name === 'clear-budget') { delete data.budgets[selectedMonth()]; save(); closeModal(); }
-    if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0) undoableDelete(`category:${group}:${index}`, 'Kategori dihapus. Catatan lama tetap tersimpan.', () => ({ value: data.categories[group].splice(Number(index), 1)[0], index: Number(index), group }), snap => data.categories[snap.group].splice(snap.index, 0, snap.value), snap => { data.syncDeletedCategories ||= {}; data.syncDeletedCategories[snap.group] ||= []; data.syncDeletedCategories[snap.group].push(snap.value); }); }
+    if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0) undoableDelete(crypto.randomUUID(), 'Kategori dihapus. Catatan lama tetap tersimpan.', () => ({ value: data.categories[group].splice(Number(index), 1)[0], index: Number(index), group }), snap => data.categories[snap.group].splice(snap.index, 0, snap.value), snap => { data.syncDeletedCategories ||= {}; data.syncDeletedCategories[snap.group] ||= []; data.syncDeletedCategories[snap.group].push(snap.value); }); }
     if (name === 'export') { exportData(); toast('Cadangan berhasil diunduh.'); } if (name === 'import') el('#import-file').click();
     if (name === 'apply-import') applyImport(); if (name === 'cancel-import') { pendingImport = null; render(); }
   });
