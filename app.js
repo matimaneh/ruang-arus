@@ -1,3 +1,4 @@
+Warning: fs was declared with const; use let for reassignable variables.
 (() => {
   const KEY = 'ruang-arus-data-v1';
   const today = new Date();
@@ -36,7 +37,25 @@
     } catch { return structuredClone(defaults); }
   }
   let syncTimer;
-  function save() { localStorage.setItem(KEY, JSON.stringify(data)); render(); if (window.RuangBackend?.enabled()) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncCloud(false), 900); } }
+  const pendingDeletions = new Map();
+  let pendingImport = null;
+  function saveLocal() { localStorage.setItem(KEY, JSON.stringify(data)); render(); }
+  function save() { saveLocal(); if (window.RuangBackend?.enabled() && !pendingDeletions.size) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncCloud(false), 900); } }
+  function toast(message, type = 'success', action = null) {
+    const root = el('#toast-root'); if (!root) return;
+    const item = document.createElement('div'); item.className = `app-toast ${type}`; item.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    const copy = document.createElement('span'); copy.textContent = message; item.append(copy);
+    if (action) { const button = document.createElement('button'); button.type = 'button'; button.textContent = action.label; button.addEventListener('click', () => { action.run(); item.remove(); }); item.append(button); }
+    root.append(item); while (root.children.length > 3) root.firstElementChild.remove();
+    setTimeout(() => { item.classList.add('leaving'); setTimeout(() => item.remove(), 180); }, action ? 7000 : 3600);
+  }
+  function formError(message) { let node = el('#active-form .form-error'); if (!node) { node = document.createElement('p'); node.className = 'form-error'; node.setAttribute('role', 'alert'); el('#active-form')?.prepend(node); } node.textContent = message; }
+  function undoableDelete(key, message, removeItems, restoreItems, commit) {
+    const snapshot = removeItems(); saveLocal();
+    const timer = setTimeout(() => { commit(snapshot); pendingDeletions.delete(key); save(); }, 6500);
+    pendingDeletions.set(key, { timer, snapshot, restoreItems });
+    toast(message, 'info', { label: 'Urungkan', run: () => { const pending = pendingDeletions.get(key); if (!pending) return; clearTimeout(pending.timer); pendingDeletions.delete(key); pending.restoreItems(pending.snapshot); save(); toast('Penghapusan dibatalkan.'); } });
+  }
   const routeState = (overlay = false) => ({ ruangArus: true, page, personalTab, overlay });
   function setPage(next, fromHistory = false) {
     if (!['dashboard', 'personal', 'business', 'savings', 'notes', 'settings'].includes(next)) return;
@@ -158,7 +177,7 @@
     return `${pageHead('Pengaturan & data', 'Atur kategori dan kelola salinan data Anda.')}
       ${accountBlock}
       <section class="panel settings-block"><h2>Kategori pencatatan</h2><p>Sesuaikan dengan istilah yang paling mudah Anda kenali. Menghapus kategori tidak menghapus catatan lama.</p><div class="category-settings">${groups.map(([key, label]) => `<div class="category-group"><div class="category-group-head"><strong>${label}</strong><button class="button secondary small" data-modal="category" data-group="${key}">＋ Tambah kategori</button></div><div class="category-pills">${data.categories[key].map((item, index) => `<span class="category-pill">${escapeHtml(item)}${index > 0 ? `<button data-action="delete-category" data-group="${key}" data-index="${index}" aria-label="Hapus kategori ${escapeHtml(item)}">×</button>` : ''}</span>`).join('')}</div></div>`).join('')}</div></section>
-      <section class="panel settings-block"><h2>Cadangan & pemindahan data</h2><p>Unduh salinan lengkap untuk arsip. Cadangan tetap disarankan walau sinkronisasi aktif.</p><div class="toolbar" style="margin-top:15px"><button class="button" data-action="export">↓ Unduh cadangan</button><button class="button secondary" data-action="import">↑ Impor cadangan</button><input id="import-file" type="file" accept="application/json,.json" hidden></div></section>
+      <section class="panel settings-block"><h2>Cadangan & pemindahan data</h2><p>Unduh salinan lengkap untuk arsip. Cadangan tetap disarankan walau sinkronisasi aktif.</p><div class="toolbar" style="margin-top:15px"><button class="button" data-action="export">↓ Unduh cadangan</button><button class="button secondary" data-action="import">↑ Impor cadangan</button><input id="import-file" type="file" accept="application/json,.json" hidden></div>${pendingImport ? `<div class="import-preview"><strong>Cadangan siap dipulihkan</strong><p>Data lokal akan diganti dengan isi berkas: ${pendingImport.transactions.length} transaksi pribadi, ${pendingImport.business.length} rekap usaha, ${pendingImport.installments.length} cicilan, dan ${pendingImport.notes.length} catatan.</p><div class="toolbar"><button class="button" data-action="apply-import">Ganti dengan cadangan</button><button class="button secondary" data-action="cancel-import">Batalkan</button></div></div>` : ''}</section>
       <section class="panel settings-block"><h2>Pasang aplikasi di ponsel</h2><p>Buka situs HTTPS ini di kedua ponsel agar Ruang Arus bisa dipasang ke layar utama dan dibuka seperti aplikasi.</p><div class="info-box sync"><strong>Android</strong>Buka melalui Chrome, tekan menu browser, lalu pilih Install app atau Tambahkan ke layar utama.<br><br><strong>iPhone</strong>Buka melalui Safari, tekan Bagikan, lalu pilih Tambahkan ke Layar Utama.</div></section>
       <section class="panel settings-block"><h2>Pengingat penyimpanan</h2><p>Data tersimpan di browser pada perangkat ini. Menghapus data browser atau memakai mode privat dapat menghilangkan catatan yang belum dicadangkan.</p><div class="info-box"><strong>Cadangkan secara berkala</strong>Setelah mengunduh, simpan berkas cadangan di tempat yang aman dan mudah Anda temukan kembali.</div></section>`;
   }
@@ -180,7 +199,7 @@
     const root = el('#modal-root'); root.querySelector('[data-close-modal]').focus();
     root.querySelectorAll('[data-close-modal]').forEach(button => button.addEventListener('click', closeModal));
     root.querySelector('.modal-backdrop').addEventListener('click', event => { if (event.target === event.currentTarget) closeModal(); });
-    root.querySelector('#active-form').addEventListener('submit', event => { event.preventDefault(); const fd = new FormData(event.currentTarget); if (onSubmit(fd) !== false) closeModal(); });
+    root.querySelector('#active-form').addEventListener('submit', event => { event.preventDefault(); el('#active-form .form-error')?.remove(); const fd = new FormData(event.currentTarget); if (onSubmit(fd) !== false) closeModal(); });
   }
   function closeModal(navigateHistory = true) {
     const shouldGoBack = navigateHistory && overlayOpen && history.state?.ruangArus && history.state.overlay;
@@ -236,8 +255,8 @@
       if (row?.payload) data = mergeSnapshot(data, row.payload);
       await window.RuangBackend.putSnapshot(data);
       localStorage.setItem(KEY, JSON.stringify(data)); render();
-      if (announce) alert('Sinkronisasi selesai. Perangkat ini dan cloud sudah digabungkan.');
-    } catch (error) { if (announce) alert(`Sinkronisasi belum berhasil: ${error.message}`); }
+      if (announce) toast('Sinkronisasi selesai. Perangkat dan cloud sudah diperbarui.');
+    } catch (error) { if (announce) toast(`Sinkronisasi belum berhasil: ${error.message}`, 'error'); }
   }
   function accountSubmit(form, mode) {
     const fd = new FormData(form), msg = form.querySelector('#account-message');
@@ -255,7 +274,7 @@
   function openSavingsGoal() {
     modal('Buat target tabungan', 'Beri nama tujuan dan tentukan nominal yang ingin dicapai.', `<div class="form-grid"><div class="field full"><label for="goal-title">Nama tujuan</label><input id="goal-title" name="title" maxlength="70" placeholder="Contoh: Dana pendidikan" required></div>${amountField('Nominal target', 'target')}${amountField('Sudah disisihkan', 'saved', '0')}<div class="field full"><label for="goal-note">Catatan <span class="field-hint">(opsional)</span></label><input id="goal-note" name="note" maxlength="150" placeholder="Contoh: target sebelum Juni"></div></div>`, fd => {
       const target = Number(fd.get('target')), saved = Number(fd.get('saved'));
-      if (saved > target) { alert('Nominal yang sudah disisihkan tidak boleh melebihi target.'); return false; }
+      if (saved > target) { formError('Nominal yang disisihkan tidak boleh melebihi target.'); return false; }
       data.savingsGoals.push({ id: crypto.randomUUID(), title: fd.get('title').trim(), target, saved, note: fd.get('note').trim(), created: isoToday }); save();
     }, 'Simpan target');
   }
@@ -264,7 +283,7 @@
     if (!left) return;
     modal(`Setor ke ${escapeHtml(goal.title)}`, `Sisa target ${money(left)}. Setoran ini mengurangi sisa uang bulan berjalan.`, `<div class="form-grid"><div class="field full"><label for="saving-amount">Nominal setoran (rupiah)</label><input id="saving-amount" name="amount" type="number" min="1" max="${left}" step="1" inputmode="numeric" placeholder="0" required></div><div class="field full"><label for="saving-date">Tanggal disisihkan</label><input id="saving-date" name="date" type="date" value="${isoToday}" required></div></div>`, fd => {
       const amount = Number(fd.get('amount'));
-      if (amount > left) { alert(`Setoran tidak boleh melebihi sisa target ${money(left)}.`); return false; }
+      if (amount > left) { formError(`Setoran tidak boleh melebihi sisa target ${money(left)}.`); return false; }
       goal.saved = Number(goal.saved) + amount;
       data.savingsTransfers.push({ id: crypto.randomUUID(), goalId: goal.id, amount, date: fd.get('date') }); save();
     }, 'Simpan setoran');
@@ -299,7 +318,7 @@
   function openInstallment() {
     modal('Tambah cicilan', 'Catat total kewajiban dan jumlah yang sudah Anda bayarkan sejauh ini.', `<div class="form-grid"><div class="field full"><label for="debt-name">Nama cicilan</label><input id="debt-name" name="name" maxlength="80" placeholder="Contoh: Cicilan motor" required></div><div class="field"><label for="debt-category">Kategori</label><select id="debt-category" name="category">${selectOptions(data.categories.debt)}</select></div><div class="field">${''}</div>${amountField('Total cicilan', 'total')}${amountField('Sudah dibayar', 'paid', '0')}<div class="field full"><label for="debt-note">Catatan <span class="field-hint">(opsional)</span></label><input id="debt-note" name="note" maxlength="150" placeholder="Contoh: jatuh tempo tanggal 10"></div></div>`, fd => {
       const total = Number(fd.get('total')), paid = Number(fd.get('paid'));
-      if (paid > total) { alert('Jumlah yang sudah dibayar tidak boleh melebihi total cicilan.'); return false; }
+      if (paid > total) { formError('Jumlah yang sudah dibayar tidak boleh melebihi total cicilan.'); return false; }
       data.installments.push({ id: crypto.randomUUID(), name: fd.get('name').trim(), category: fd.get('category'), total, paid, note: fd.get('note').trim(), created: new Date().toISOString() }); save();
     });
   }
@@ -307,7 +326,7 @@
     const left = Number(item.total) - Number(item.paid);
     modal(`Bayar ${escapeHtml(item.name)}`, `Sisa cicilan saat ini ${money(left)}. Pembayaran juga dicatat sebagai pengeluaran pribadi.`, `<div class="form-grid"><div class="field full"><label for="pay-amount">Jumlah pembayaran (rupiah)</label><input id="pay-amount" name="amount" type="number" min="1" max="${left}" step="1" inputmode="numeric" placeholder="0" required></div><div class="field full"><label for="pay-date">Tanggal bayar</label><input id="pay-date" name="date" type="date" value="${isoToday}" required></div></div>`, fd => {
       const amount = Number(fd.get('amount'));
-      if (amount > left) { alert(`Pembayaran tidak boleh melebihi sisa cicilan ${money(left)}.`); return false; }
+      if (amount > left) { formError(`Pembayaran tidak boleh melebihi sisa cicilan ${money(left)}.`); return false; }
       item.paid = Number(item.paid) + amount;
       data.transactions.push({ id: crypto.randomUUID(), type: 'expense', title: `Pembayaran cicilan · ${item.name}`, category: 'Cicilan', date: fd.get('date'), amount, note: '', created: new Date().toISOString() }); save();
     }, 'Simpan pembayaran');
@@ -321,11 +340,21 @@
   function openCategory(group) {
     const labels = { income: 'pemasukan', expense: 'pengeluaran', debt: 'cicilan' };
     modal('Tambah kategori', `Buat kategori baru untuk ${labels[group]}.`, `<div class="field"><label for="category-name">Nama kategori</label><input id="category-name" name="name" maxlength="32" placeholder="Contoh: Pendidikan" required></div>`, fd => {
-      const name = fd.get('name').trim(); if (data.categories[group].some(x => x.toLowerCase() === name.toLowerCase())) { alert('Kategori tersebut sudah ada.'); return false; }
+      const name = fd.get('name').trim(); if (data.categories[group].some(x => x.toLowerCase() === name.toLowerCase())) { formError('Kategori tersebut sudah ada.'); return false; }
       data.categories[group].push(name); save();
     }, 'Tambah kategori');
   }
-  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { const removed = data[collection].find(item => item.id === id); data[collection] = data[collection].filter(item => item.id !== id); data.syncDeleted ||= []; data.syncDeleted.push(id); if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); } if (collection === 'business' && removed?.personalIncomeId) { data.transactions = data.transactions.filter(tx => tx.id !== removed.personalIncomeId); data.syncDeleted.push(removed.personalIncomeId); } save(); } }
+  function remove(id, collection, label) {
+    const key = `${collection}:${id}`;
+    undoableDelete(key, `${label[0].toUpperCase()}${label.slice(1)} dihapus.`, () => {
+      const removed = data[collection].find(item => item.id === id);
+      const linked = collection === 'business' && removed?.personalIncomeId ? data.transactions.find(tx => tx.id === removed.personalIncomeId) : null;
+      data[collection] = data[collection].filter(item => item.id !== id); if (linked) data.transactions = data.transactions.filter(tx => tx.id !== linked.id);
+      return { removed, linked };
+    }, ({ removed, linked }) => { if (removed) data[collection].push(removed); if (linked) data.transactions.push(linked); }, ({ linked }) => {
+      data.syncDeleted ||= []; data.syncDeleted.push(id); if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); } if (linked) data.syncDeleted.push(linked.id);
+    });
+  }
   function exportData() {
     const payload = { ...data, exportedAt: new Date().toISOString(), app: 'ruang-arus' };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `cadangan-ruang-arus-${isoToday}.json`; a.click(); URL.revokeObjectURL(url);
@@ -336,12 +365,13 @@
       try {
         const incoming = JSON.parse(reader.result);
         if (!incoming || !Array.isArray(incoming.transactions) || !Array.isArray(incoming.business) || !Array.isArray(incoming.installments) || !Array.isArray(incoming.notes)) throw new Error();
-        if (!confirm('Impor akan mengganti catatan di perangkat ini dengan isi cadangan. Lanjutkan?')) return;
-        data = { ...structuredClone(defaults), ...incoming, categories: { ...defaults.categories, ...(incoming.categories || {}) } }; save(); alert('Cadangan berhasil dimuat.');
-      } catch { alert('Berkas tidak cocok atau rusak. Pilih cadangan Ruang Arus berformat JSON.'); }
+        pendingImport = { ...structuredClone(defaults), ...incoming, categories: { ...defaults.categories, ...(incoming.categories || {}) } }; render();
+      } catch { toast('Berkas tidak cocok atau rusak. Pilih cadangan Ruang Arus berformat JSON.', 'error'); }
     };
+    reader.onerror = () => toast('Berkas cadangan tidak dapat dibaca.', 'error');
     reader.readAsText(file);
   }
+  function applyImport() { if (!pendingImport) return; data = pendingImport; pendingImport = null; save(); toast('Cadangan berhasil dimuat.'); }
   document.addEventListener('click', event => {
     const authButton = event.target.closest('[data-auth-mode]'); if (authButton) { event.preventDefault(); const form = authButton.closest('form'); if (form) accountSubmit(form, authButton.dataset.authMode); return; }
     const pageButton = event.target.closest('[data-page]'); if (pageButton) { setPage(pageButton.dataset.page); return; }
@@ -365,21 +395,22 @@
     if (name === 'open-note' || name === 'edit-note') { const note = data.notes.find(x => x.id === id); if (note) name === 'open-note' ? openNoteDetails(note) : openNote(note); }
     if (name === 'delete-note') remove(id, 'notes', 'catatan');
     if (name === 'add-saving') { const goal = data.savingsGoals.find(x => x.id === id); if (goal) openSavingTransfer(goal); }
-    if (name === 'delete-goal') { if (confirm('Hapus target ini beserta riwayat setoran terkait?')) { data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); save(); } }
+    if (name === 'delete-goal') undoableDelete(`goal:${id}`, 'Target tabungan dihapus.', () => { const goal = data.savingsGoals.find(x => x.id === id); const transfers = data.savingsTransfers.filter(x => x.goalId === id); data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); return { goal, transfers }; }, ({ goal, transfers }) => { if (goal) data.savingsGoals.push(goal); data.savingsTransfers.push(...transfers); }, () => { data.syncDeleted ||= []; data.syncDeleted.push(id); });
     if (name === 'quick-menu') openQuickMenu();
     if (name === 'photo-capture') openPhotoCapture();
     if (name === 'enable-cloud') {
-      if (!el('#cloud-consent')?.checked) { alert('Centang persetujuan terlebih dahulu.'); return; }
+      if (!el('#cloud-consent')?.checked) { toast('Centang persetujuan sebelum mengaktifkan sinkronisasi.', 'error'); return; }
       window.RuangBackend.setEnabled(true); syncCloud(true); render();
     }
     if (name === 'sync-now') syncCloud(true);
-    if (name === 'sign-out') { if (confirm('Keluar dari akun ini? Salinan cloud tetap tersimpan.')) window.RuangBackend.signOut().then(render); }
-    if (name === 'wa-code') window.RuangBackend.makeLinkCode().then(code => { const target = el('#whatsapp-code-result'); if (target) target.textContent = `Kirim “hubungkan ${code}” ke nomor WhatsApp Business bot Anda dalam 15 menit.`; }).catch(error => alert(error.message));
+    if (name === 'sign-out') window.RuangBackend.signOut().then(() => { render(); toast('Anda sudah keluar. Salinan cloud tetap tersimpan.'); }).catch(error => toast(error.message, 'error'));
+    if (name === 'wa-code') window.RuangBackend.makeLinkCode().then(code => { const target = el('#whatsapp-code-result'); if (target) target.textContent = `Kirim “hubungkan ${code}” ke nomor WhatsApp Business bot Anda dalam 15 menit.`; }).catch(error => toast(error.message, 'error'));
     if (name === 'read-photo') readPhoto();
     if (name === 'toggle-amounts') { amountsHidden = !amountsHidden; render(); }
     if (name === 'clear-budget') { delete data.budgets[selectedMonth()]; save(); closeModal(); }
-    if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0 && confirm('Hapus kategori ini? Catatan lama tetap tersimpan.')) { data.categories[group].splice(Number(index), 1); save(); } }
-    if (name === 'export') exportData(); if (name === 'import') el('#import-file').click();
+    if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0) undoableDelete(`category:${group}:${index}`, 'Kategori dihapus. Catatan lama tetap tersimpan.', () => ({ value: data.categories[group].splice(Number(index), 1)[0], index: Number(index), group }), snap => data.categories[snap.group].splice(snap.index, 0, snap.value), () => {}); }
+    if (name === 'export') { exportData(); toast('Cadangan berhasil diunduh.'); } if (name === 'import') el('#import-file').click();
+    if (name === 'apply-import') applyImport(); if (name === 'cancel-import') { pendingImport = null; render(); }
   });
   document.addEventListener('change', event => { if (event.target.id === 'import-file') importData(event.target.files?.[0]); });
   async function copyNote(note, button) {
@@ -393,10 +424,10 @@
       }
       const previous = button.textContent; button.textContent = 'Tersalin'; button.disabled = true;
       setTimeout(() => { if (button.isConnected) { button.textContent = previous; button.disabled = false; } }, 1400);
-    } catch { alert('Catatan belum bisa disalin. Coba tekan lama pada teks lalu pilih Salin.'); }
+    } catch { toast('Catatan belum bisa disalin. Tekan lama pada teks lalu pilih Salin.', 'error'); }
   }
   async function readPhoto() {
-    const file = el('#receipt-image')?.files?.[0]; if (!file) { alert('Pilih foto atau screenshot dahulu.'); return; }
+    const file = el('#receipt-image')?.files?.[0]; if (!file) { const status = el('#ocr-status'); if (status) status.textContent = 'Pilih foto atau screenshot struk dahulu.'; return; }
     const status = el('#ocr-status'); const button = el('[data-action="read-photo"]'); button.disabled = true; status.textContent = 'Memuat pembaca teks dan memeriksa foto…';
     try {
       if (!window.Tesseract) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js'; script.onload = resolve; script.onerror = () => reject(new Error('Pembaca OCR tidak dapat dimuat. Periksa koneksi internet.')); document.head.appendChild(script); });
