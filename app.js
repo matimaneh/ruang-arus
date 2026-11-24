@@ -196,7 +196,7 @@
     detailModal(tx.title || tx.category || 'Rincian transaksi', `${label} · ${dateLabel(tx.date)}`, `<div class="detail-amount ${tx.type === 'expense' ? 'negative' : ''}">${tx.type === 'expense' ? '−' : '+'}${money(tx.amount)}</div><dl class="detail-list"><div><dt>Kategori</dt><dd>${escapeHtml(tx.category || 'Lainnya')}</dd></div><div><dt>Tanggal</dt><dd>${dateLabel(tx.date)}</dd></div>${tx.source ? `<div><dt>Sumber dana</dt><dd>${escapeHtml(tx.source)}</dd></div>` : ''}${tx.entryMethod ? `<div><dt>Dicatat melalui</dt><dd>${escapeHtml(tx.entryMethod === 'photo-ocr' ? 'Baca dari foto' : tx.entryMethod === 'business' ? 'Rekap usaha' : tx.entryMethod)}</dd></div>` : ''}${tx.note ? `<div class="detail-note"><dt>Catatan</dt><dd>${escapeHtml(tx.note)}</dd></div>` : ''}</dl>`);
   }
   function openNoteDetails(note) {
-    detailModal(note.title || 'Tanpa judul', `Catatan · diubah ${dateLabel(note.updated, { day: 'numeric', month: 'long', year: 'numeric' })}`, `<div class="note-detail-body">${escapeHtml(note.body)}</div>`, `<button class="button" type="button" data-action="edit-note" data-id="${note.id}">Ubah catatan</button>`);
+    detailModal(note.title || 'Tanpa judul', `Catatan · diubah ${dateLabel(note.updated, { day: 'numeric', month: 'long', year: 'numeric' })}`, `<div class="note-detail-body">${escapeHtml(note.body)}</div>`, `<button class="button secondary" type="button" data-action="copy-note" data-id="${note.id}">Salin</button><button class="button" type="button" data-action="edit-note" data-id="${note.id}">Ubah catatan</button>`);
   }
   function selectOptions(options, selected = '') { return options.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
   function amountField(label, name, value = '') { return `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="number" min="0" step="1" inputmode="numeric" value="${value}" placeholder="0" required></div>`; }
@@ -351,6 +351,7 @@
     const action = event.target.closest('[data-action]'); if (!action) return;
     const { action: name, id } = action.dataset;
     if (name === 'open-tx') { const tx = data.transactions.find(item => item.id === id); if (tx) openTransactionDetails(tx); }
+    if (name === 'copy-note') { const note = data.notes.find(item => item.id === id); if (note) copyNote(note, action); }
     if (name === 'delete-tx') remove(id, 'transactions', 'transaksi');
     if (name === 'delete-business') remove(id, 'business', 'rekap');
     if (name === 'delete-installment') remove(id, 'installments', 'cicilan');
@@ -375,6 +376,19 @@
     if (name === 'export') exportData(); if (name === 'import') el('#import-file').click();
   });
   document.addEventListener('change', event => { if (event.target.id === 'import-file') importData(event.target.files?.[0]); });
+  async function copyNote(note, button) {
+    const text = [note.title?.trim(), note.body || ''].filter(Boolean).join('\n\n');
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const field = document.createElement('textarea'); field.value = text; field.setAttribute('readonly', ''); field.style.position = 'fixed'; field.style.opacity = '0';
+        document.body.appendChild(field); field.select(); const copied = document.execCommand('copy'); field.remove();
+        if (!copied) throw new Error('Clipboard tidak tersedia.');
+      }
+      const previous = button.textContent; button.textContent = 'Tersalin'; button.disabled = true;
+      setTimeout(() => { if (button.isConnected) { button.textContent = previous; button.disabled = false; } }, 1400);
+    } catch { alert('Catatan belum bisa disalin. Coba tekan lama pada teks lalu pilih Salin.'); }
+  }
   async function readPhoto() {
     const file = el('#receipt-image')?.files?.[0]; if (!file) { alert('Pilih foto atau screenshot dahulu.'); return; }
     const status = el('#ocr-status'); const button = el('[data-action="read-photo"]'); button.disabled = true; status.textContent = 'Memuat pembaca teks dan memeriksa foto…';
