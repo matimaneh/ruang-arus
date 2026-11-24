@@ -1,5 +1,3 @@
-Warning: fs was declared with const; use let for reassignable variables.
-Warning: src was declared with const; use let for reassignable variables.
 (() => {
   const cfg = window.RUANG_ARUS_BACKEND;
   const SESSION_KEY = 'ruang-arus-session-v1';
