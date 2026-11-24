@@ -3,7 +3,7 @@
   const today = new Date();
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
-    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [],
+    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [], syncDeletedBusiness: [],
     categories: { income: ['Gaji', 'Pendapatan usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   let data = load();
@@ -31,7 +31,7 @@
     try {
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!stored || typeof stored !== 'object') return structuredClone(defaults);
-      return { ...structuredClone(defaults), ...stored, syncDeleted: stored.syncDeleted || [], categories: { ...defaults.categories, ...(stored.categories || {}) } };
+      return { ...structuredClone(defaults), ...stored, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], categories: { ...defaults.categories, ...(stored.categories || {}) } };
     } catch { return structuredClone(defaults); }
   }
   let syncTimer;
@@ -217,6 +217,7 @@
   function mergeSnapshot(local, remote) {
     const merged = { ...structuredClone(defaults), ...local, categories: { ...defaults.categories, ...(local.categories || {}) } };
     const deleted = new Set([...(local.syncDeleted || []), ...(remote.syncDeleted || [])]); merged.syncDeleted = [...deleted];
+    merged.syncDeletedBusiness = [...new Set([...(local.syncDeletedBusiness || []), ...(remote.syncDeletedBusiness || [])])];
     const keys = ['transactions', 'business', 'installments', 'notes', 'savingsGoals', 'savingsTransfers'];
     for (const key of keys) {
       const all = new Map();
@@ -323,7 +324,7 @@
       data.categories[group].push(name); save();
     }, 'Tambah kategori');
   }
-  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { const removed = data[collection].find(item => item.id === id); data[collection] = data[collection].filter(item => item.id !== id); data.syncDeleted ||= []; data.syncDeleted.push(id); if (collection === 'business' && removed?.personalIncomeId) { data.transactions = data.transactions.filter(tx => tx.id !== removed.personalIncomeId); data.syncDeleted.push(removed.personalIncomeId); } save(); } }
+  function remove(id, collection, label) { if (confirm(`Hapus ${label} ini?`)) { const removed = data[collection].find(item => item.id === id); data[collection] = data[collection].filter(item => item.id !== id); data.syncDeleted ||= []; data.syncDeleted.push(id); if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); } if (collection === 'business' && removed?.personalIncomeId) { data.transactions = data.transactions.filter(tx => tx.id !== removed.personalIncomeId); data.syncDeleted.push(removed.personalIncomeId); } save(); } }
   function exportData() {
     const payload = { ...data, exportedAt: new Date().toISOString(), app: 'ruang-arus' };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `cadangan-ruang-arus-${isoToday}.json`; a.click(); URL.revokeObjectURL(url);
