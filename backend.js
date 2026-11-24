@@ -34,9 +34,12 @@
     const t = await token();
     const rows = await request('/rest/v1/finance_records?record_type=eq.app_state&record_id=eq.app-state&select=payload,updated_at&limit=1', {}, t);
     const transactions = await request('/rest/v1/finance_records?record_type=eq.transaction&deleted_at=is.null&select=record_id,payload&limit=5000', {}, t);
+    const business = await request('/rest/v1/finance_records?record_type=eq.business&deleted_at=is.null&select=record_id,payload&limit=5000', {}, t);
     const snapshot = rows?.[0] || null;
-    if (snapshot) snapshot.payload.transactions = [...new Map([...(snapshot.payload.transactions || []), ...(transactions || []).map(row => row.payload)].map(item => [item.id, item])).values()];
-    else if (transactions?.length) return { payload: { transactions: transactions.map(row => row.payload) } };
+    if (snapshot) {
+      snapshot.payload.transactions = [...new Map([...(snapshot.payload.transactions || []), ...(transactions || []).map(row => row.payload)].map(item => [item.id, item])).values()];
+      snapshot.payload.business = [...new Map([...(snapshot.payload.business || []), ...(business || []).map(row => row.payload)].map(item => [item.id, item])).values()];
+    } else if (transactions?.length || business?.length) return { payload: { transactions: transactions.map(row => row.payload), business: business.map(row => row.payload) } };
     return snapshot;
   }
   async function putSnapshot(snapshot) {
@@ -44,7 +47,9 @@
     const user = await request('/auth/v1/user', {}, t);
     const records = [{ user_id: user.id, record_type: 'app_state', record_id: 'app-state', payload: snapshot }];
     for (const item of snapshot.transactions || []) records.push({ user_id: user.id, record_type: 'transaction', record_id: item.id, payload: item, deleted_at: null });
+    for (const item of snapshot.business || []) records.push({ user_id: user.id, record_type: 'business', record_id: item.id, payload: item, deleted_at: null });
     for (const id of snapshot.syncDeleted || []) records.push({ user_id: user.id, record_type: 'transaction', record_id: id, payload: { id, deleted: true }, deleted_at: new Date().toISOString() });
+    for (const id of snapshot.syncDeletedBusiness || []) records.push({ user_id: user.id, record_type: 'business', record_id: id, payload: { id, deleted: true }, deleted_at: new Date().toISOString() });
     await request('/rest/v1/finance_records?on_conflict=user_id%2Crecord_type%2Crecord_id', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify(records)
@@ -69,4 +74,3 @@
     getSnapshot, putSnapshot, makeLinkCode
   };
 })();
-
