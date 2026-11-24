@@ -46,7 +46,7 @@ Warning: src was declared with const; use let for reassignable variables.
   async function putSnapshot(snapshot) {
     const t = await token();
     const user = await request('/auth/v1/user', {}, t);
-    const records = [{ user_id: user.id, record_type: 'app_state', record_id: 'app-state', payload: snapshot }];
+    const records = [{ user_id: user.id, record_type: 'app_state', record_id: 'app-state', payload: snapshot, deleted_at: null }];
     for (const item of snapshot.transactions || []) records.push({ user_id: user.id, record_type: 'transaction', record_id: item.id, payload: item, deleted_at: null });
     for (const item of snapshot.business || []) records.push({ user_id: user.id, record_type: 'business', record_id: item.id, payload: item, deleted_at: null });
     for (const id of snapshot.syncDeleted || []) records.push({ user_id: user.id, record_type: 'transaction', record_id: id, payload: { id, deleted: true }, deleted_at: new Date().toISOString() });
