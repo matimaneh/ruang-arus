@@ -1,10 +1,11 @@
 Warning: fs was declared with const; use let for reassignable variables.
+Warning: src was declared with const; use let for reassignable variables.
 (() => {
   const KEY = 'ruang-arus-data-v1';
   const today = new Date();
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
-    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [], syncDeletedBusiness: [],
+    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedCategories: {},
     categories: { income: ['Gaji', 'Pendapatan usaha', 'Pendapatan laba usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   let data = load();
@@ -33,7 +34,7 @@ Warning: fs was declared with const; use let for reassignable variables.
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!stored || typeof stored !== 'object') return structuredClone(defaults);
       const categories = Object.fromEntries(Object.keys(defaults.categories).map(group => [group, [...new Set([...(defaults.categories[group] || []), ...(stored.categories?.[group] || [])])]]));
-      return { ...structuredClone(defaults), ...stored, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], categories };
+      return { ...structuredClone(defaults), ...stored, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], syncDeletedCategories: stored.syncDeletedCategories || {}, categories };
     } catch { return structuredClone(defaults); }
   }
   let syncTimer;
@@ -238,13 +239,14 @@ Warning: fs was declared with const; use let for reassignable variables.
     const merged = { ...structuredClone(defaults), ...local, categories: { ...defaults.categories, ...(local.categories || {}) } };
     const deleted = new Set([...(local.syncDeleted || []), ...(remote.syncDeleted || [])]); merged.syncDeleted = [...deleted];
     merged.syncDeletedBusiness = [...new Set([...(local.syncDeletedBusiness || []), ...(remote.syncDeletedBusiness || [])])];
+    merged.syncDeletedCategories = { ...(remote.syncDeletedCategories || {}), ...(local.syncDeletedCategories || {}) };
     const keys = ['transactions', 'business', 'installments', 'notes', 'savingsGoals', 'savingsTransfers'];
     for (const key of keys) {
       const all = new Map();
       for (const item of [...(remote[key] || []), ...(local[key] || [])]) if (!deleted.has(item.id)) all.set(item.id, item);
       merged[key] = [...all.values()];
     }
-    merged.categories = Object.fromEntries(Object.keys(defaults.categories).map(key => [key, [...new Set([...(remote.categories?.[key] || []), ...(local.categories?.[key] || [])])]]));
+    merged.categories = Object.fromEntries(Object.keys(defaults.categories).map(key => [key, [...new Set([...(remote.categories?.[key] || []), ...(local.categories?.[key] || [])])].filter(value => !merged.syncDeletedCategories[key]?.includes(value))]));
     merged.budgets = { ...(remote.budgets || {}), ...(local.budgets || {}) };
     return merged;
   }
@@ -341,7 +343,7 @@ Warning: fs was declared with const; use let for reassignable variables.
     const labels = { income: 'pemasukan', expense: 'pengeluaran', debt: 'cicilan' };
     modal('Tambah kategori', `Buat kategori baru untuk ${labels[group]}.`, `<div class="field"><label for="category-name">Nama kategori</label><input id="category-name" name="name" maxlength="32" placeholder="Contoh: Pendidikan" required></div>`, fd => {
       const name = fd.get('name').trim(); if (data.categories[group].some(x => x.toLowerCase() === name.toLowerCase())) { formError('Kategori tersebut sudah ada.'); return false; }
-      data.categories[group].push(name); save();
+      data.categories[group].push(name); data.syncDeletedCategories[group] = (data.syncDeletedCategories[group] || []).filter(value => value !== name); save();
     }, 'Tambah kategori');
   }
   function remove(id, collection, label) {
@@ -408,7 +410,7 @@ Warning: fs was declared with const; use let for reassignable variables.
     if (name === 'read-photo') readPhoto();
     if (name === 'toggle-amounts') { amountsHidden = !amountsHidden; render(); }
     if (name === 'clear-budget') { delete data.budgets[selectedMonth()]; save(); closeModal(); }
-    if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0) undoableDelete(`category:${group}:${index}`, 'Kategori dihapus. Catatan lama tetap tersimpan.', () => ({ value: data.categories[group].splice(Number(index), 1)[0], index: Number(index), group }), snap => data.categories[snap.group].splice(snap.index, 0, snap.value), () => {}); }
+    if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0) undoableDelete(`category:${group}:${index}`, 'Kategori dihapus. Catatan lama tetap tersimpan.', () => ({ value: data.categories[group].splice(Number(index), 1)[0], index: Number(index), group }), snap => data.categories[snap.group].splice(snap.index, 0, snap.value), snap => { data.syncDeletedCategories ||= {}; data.syncDeletedCategories[snap.group] ||= []; data.syncDeletedCategories[snap.group].push(snap.value); }); }
     if (name === 'export') { exportData(); toast('Cadangan berhasil diunduh.'); } if (name === 'import') el('#import-file').click();
     if (name === 'apply-import') applyImport(); if (name === 'cancel-import') { pendingImport = null; render(); }
   });
