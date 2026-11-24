@@ -166,6 +166,10 @@
     const labels = { dashboard: 'Ringkasan keuangan', personal: 'Keuangan pribadi', business: 'Keuangan usaha', savings: 'Tabungan', notes: 'Ruang catatan', settings: 'Pengaturan & data' };
     el('#top-context').textContent = labels[page];
     el('#today-label').textContent = new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }).format(today);
+    const mobileAccount = el('#mobile-account');
+    const accountSignedIn = Boolean(window.RuangBackend?.session()?.user);
+    mobileAccount.textContent = accountSignedIn ? 'Akun' : 'Masuk';
+    mobileAccount.setAttribute('aria-label', accountSignedIn ? 'Buka pengaturan akun' : 'Masuk ke akun Ruang Arus');
     el('#page-content').innerHTML = map[page]();
     document.querySelectorAll('[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page));
   }
@@ -419,4 +423,3 @@
   history.replaceState(routeState(), '', location.href);
   render();
 })();
-
