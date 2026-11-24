@@ -1,7 +1,8 @@
+Warning: fs was declared with const; use let for reassignable variables.
+Warning: src was declared with const; use let for reassignable variables.
 (() => {
   const cfg = window.RUANG_ARUS_BACKEND;
   const SESSION_KEY = 'ruang-arus-session-v1';
-  const SYNC_KEY = 'ruang-arus-cloud-enabled-v1';
   const headers = token => ({ apikey: cfg.publishableKey, authorization: `Bearer ${token || cfg.publishableKey}`, 'content-type': 'application/json' });
   const session = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } };
   const saveSession = value => value ? localStorage.setItem(SESSION_KEY, JSON.stringify(value)) : localStorage.removeItem(SESSION_KEY);
@@ -67,10 +68,10 @@
     return plain;
   }
   window.RuangBackend = {
-    session, enabled: () => localStorage.getItem(SYNC_KEY) === 'yes', setEnabled: value => localStorage.setItem(SYNC_KEY, value ? 'yes' : 'no'),
+    session, enabled: () => Boolean(session()), setEnabled: () => {},
     signIn: (email, password) => auth('token?grant_type=password', email, password),
     signUp: (email, password) => auth('signup', email, password),
-    signOut: async () => { const s = session(); if (s?.access_token) await request('/auth/v1/logout', { method: 'POST' }, s.access_token).catch(() => {}); saveSession(null); localStorage.removeItem(SYNC_KEY); },
+    signOut: async () => { const s = session(); if (s?.access_token) await request('/auth/v1/logout', { method: 'POST' }, s.access_token).catch(() => {}); saveSession(null); },
     getSnapshot, putSnapshot, makeLinkCode
   };
 })();
