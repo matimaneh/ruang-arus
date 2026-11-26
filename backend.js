@@ -42,8 +42,11 @@
     const stateRows = await request('/rest/v1/finance_records?record_type=eq.app_state&record_id=eq.app-state&select=payload,updated_at&limit=1', {}, t);
     const allRows = await request('/rest/v1/finance_records?record_type=in.%28transaction,business,installment,note,savings_goal,savings_transfer%29&select=record_type,record_id,payload,deleted_at&limit=5000', {}, t);
     const payload = stateRows?.[0]?.payload ? structuredClone(stateRows[0].payload) : {};
-    const recordsByType = Object.fromEntries(Object.keys(recordCollections).map(type => [type, []]));
-    const seenTypes = new Set();
+    const writeTime = item => Date.parse(item.updatedAt || item.updated_at || item.updated || item.created || '') || 0;
+    const recordsByType = Object.fromEntries(Object.entries(recordCollections).map(([type, collection]) => [
+      type,
+      new Map((payload[collection] || []).filter(item => item?.id).map(item => [item.id, item]))
+    ]));
     payload.syncDeletedRecords ||= [];
     payload.syncDeletedAt ||= {};
     payload.syncDeleted ||= [];
@@ -51,10 +54,10 @@
     for (const row of allRows || []) {
       const collection = recordCollections[row.record_type];
       if (!collection) continue;
-      seenTypes.add(row.record_type);
       if (row.deleted_at) {
         const id = row.record_id;
-        recordsByType[row.record_type].push({ id, deleted: true, updatedAt: row.deleted_at });
+        const current = recordsByType[row.record_type].get(id);
+        if (!current || writeTime(current) <= Date.parse(row.deleted_at)) recordsByType[row.record_type].delete(id);
         const old = Date.parse(payload.syncDeletedAt[id] || '') || 0;
         if (Date.parse(row.deleted_at) > old) payload.syncDeletedAt[id] = row.deleted_at;
         if (!payload.syncDeleted.includes(id)) payload.syncDeleted.push(id);
@@ -65,12 +68,12 @@
         if (!existing) payload.syncDeletedRecords.push(tombstone);
         else if (Date.parse(row.deleted_at) > Date.parse(existing.deletedAt || '')) existing.deletedAt = row.deleted_at;
       } else {
-        recordsByType[row.record_type].push(row.payload);
+        const current = recordsByType[row.record_type].get(row.payload.id || row.record_id);
+        const incoming = row.payload;
+        if (!current || writeTime(incoming) >= writeTime(current)) recordsByType[row.record_type].set(incoming.id || row.record_id, incoming);
       }
     }
-    for (const [type, collection] of Object.entries(recordCollections)) {
-      if (seenTypes.has(type)) payload[collection] = recordsByType[type].filter(item => !item.deleted);
-    }
+    for (const [type, collection] of Object.entries(recordCollections)) payload[collection] = [...recordsByType[type].values()];
     if (!stateRows?.length && !allRows?.length) return null;
     return { payload };
   }
