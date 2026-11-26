@@ -11,4 +11,4 @@
 - Navigasi ponsel: empat tujuan utama dan satu tombol tambah. Label tampil hanya pada halaman aktif supaya ikon lain tetap ringkas seperti referensi.
 - Tabungan: target dan progres disimpan terpisah dari belanja. Setoran mengurangi sisa uang periode, sementara jumlah yang telah disisihkan tetap terakumulasi pada target.
 - Dials: ritme 2 (ringkasan padat dengan ruang lega di antara kelompok), kepadatan 2 (angka utama menonjol dengan label singkat), liveliness 2 (hangat melalui warna tanah, bentuk, dan variasi komposisi yang mengikuti jenis data).
-
+- Ruang catatan memisahkan catatan, to-do, dan pengingat melalui filter ringan; agenda pengingat dibawa ke Kalender HP sebagai berkas kalender berisi alarm.

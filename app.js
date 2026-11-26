@@ -17,6 +17,7 @@
   let page = 'dashboard';
   let monthOffset = 0;
   let personalTab = 'activity';
+  let notesFilter = 'all';
   let overlayOpen = false;
   let amountsHidden = false;
   const el = (s, root = document) => root.querySelector(s);
@@ -177,9 +178,41 @@
       <div class="stat-grid"><article class="stat-card"><div class="stat-top"><span class="stat-label">Total omset</span><span class="stat-icon">↙</span></div><div class="stat-value">${money(turnover)}</div><div class="stat-foot">${biz.length} hari tercatat</div></article><article class="stat-card"><div class="stat-top"><span class="stat-label">Total HPP</span><span class="stat-icon gold">▤</span></div><div class="stat-value">${money(hpp)}</div><div class="stat-foot">Harga pokok penjualan</div></article><article class="stat-card"><div class="stat-top"><span class="stat-label">Biaya per hari</span><span class="stat-icon rust">↗</span></div><div class="stat-value">${money(costs)}</div><div class="stat-foot">Biaya operasional harian</div></article><article class="stat-card"><div class="stat-top"><span class="stat-label">Rata-rata omset</span><span class="stat-icon">⌁</span></div><div class="stat-value">${money(biz.length ? turnover / biz.length : 0)}</div><div class="stat-foot">Per hari yang dicatat</div></article></div>
       <section class="panel"><div class="panel-head"><div><h2 class="panel-title">Rekap harian</h2><p class="panel-hint">Omset dikurangi HPP dan biaya untuk menghitung laba</p></div>${periodControl()}</div>${rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>TANGGAL</th><th class="numeric">OMSET</th><th class="numeric">HPP</th><th class="numeric hide-mobile">BIAYA</th><th class="numeric">LABA BERSIH</th><th></th></tr></thead><tbody>${rows.map(item => `<tr><td>${dateLabel(item.date)}</td><td class="numeric">${money(item.turnover)}</td><td class="numeric">${money(item.hpp)}</td><td class="numeric hide-mobile">${money(item.cost)}</td><td class="numeric"><strong>${money(Number(item.turnover) - Number(item.hpp) - Number(item.cost))}</strong></td><td><div class="row-actions"><button data-action="delete-business" data-id="${item.id}" aria-label="Hapus rekap">×</button></div></td></tr>`).join('')}</tbody></table></div>` : empty(investmentIcon, 'Belum ada rekap usaha', 'Tambahkan omset, HPP, dan biaya untuk melihat laba harian.')}</section>`;
   }
+  function noteCard(note) {
+    const kind = note.kind || 'note';
+    const kindLabels = { note: 'Catatan', todo: 'To-do', reminder: 'Pengingat' };
+    const reminderDate = note.remindAt ? new Date(note.remindAt) : null;
+    const reminderLabel = reminderDate && !Number.isNaN(reminderDate.getTime())
+      ? new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(reminderDate)
+      : '';
+    return `<article class="note-card note-card--${kind}${note.completed ? ' is-completed' : ''}">
+      <div class="note-card-heading">${kind === 'todo' ? `<button type="button" class="note-todo-toggle${note.completed ? ' is-done' : ''}" data-action="toggle-todo" data-id="${note.id}" aria-pressed="${Boolean(note.completed)}" aria-label="${note.completed ? 'Tandai belum selesai' : 'Tandai selesai'}">${note.completed ? '✓' : ''}</button>` : ''}
+        <div class="note-card-title"><span class="note-kind note-kind--${kind}">${kindLabels[kind] || kindLabels.note}</span><h3>${escapeHtml(note.title || (kind === 'todo' ? 'To-do tanpa judul' : 'Tanpa judul'))}</h3></div>
+      </div>
+      <p>${escapeHtml(note.body || '')}</p>
+      ${reminderLabel ? `<div class="note-reminder-time"><span aria-hidden="true">◷</span><span>${escapeHtml(reminderLabel)}${reminderDate < new Date() ? ' · Lewat jadwal' : ''}</span></div>` : ''}
+      <div class="note-bottom"><span>${kind === 'todo' && note.completed ? 'Selesai' : `Diubah ${dateLabel(note.updated, { day: 'numeric', month: 'short' })}`}</span><div class="note-tools"><button type="button" class="note-open" data-action="open-note" data-id="${note.id}">Buka</button><button type="button" data-action="edit-note" data-id="${note.id}" aria-label="Ubah ${kindLabels[kind].toLowerCase()}">Ubah</button><button type="button" data-action="delete-note" data-id="${note.id}" aria-label="Hapus ${kindLabels[kind].toLowerCase()}">Hapus</button></div></div>
+    </article>`;
+  }
   function notes() {
-    const notes = [...data.notes].sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
-    return `${pageHead('Ruang catatan', 'Simpan prompt, ide, tulisan, atau data penting dalam satu tempat.', `<button class="button" data-modal="note">＋ Catatan baru</button>`)}${notes.length ? `<div class="note-grid">${notes.map(note => `<article class="note-card"><h3>${escapeHtml(note.title || 'Tanpa judul')}</h3><p>${escapeHtml(note.body)}</p><div class="note-bottom"><span>Diubah ${dateLabel(note.updated, { day: 'numeric', month: 'short' })}</span><div class="note-tools"><button class="note-open" data-action="open-note" data-id="${note.id}">Buka</button><button data-action="edit-note" data-id="${note.id}">Ubah</button><button data-action="delete-note" data-id="${note.id}">Hapus</button></div></div></article>`).join('')}</div>` : `<section class="panel">${empty(bookIcon, 'Ruang ini masih kosong', 'Tulis prompt, ide usaha, daftar belanja, atau apa pun yang ingin Anda simpan.', '<button class="button small" data-modal="note">＋ Tulis catatan</button>')}</section>`}`;
+    const allNotes = data.notes.map(note => ({ ...note, kind: note.kind || 'note' }));
+    const filters = [['all', 'Semua'], ['note', 'Catatan'], ['todo', 'To-do'], ['reminder', 'Pengingat']];
+    const counts = Object.fromEntries(filters.map(([key]) => [key, key === 'all' ? allNotes.length : allNotes.filter(note => note.kind === key).length]));
+    const visible = allNotes.filter(note => notesFilter === 'all' || note.kind === notesFilter).sort((a, b) => {
+      if (a.kind === 'reminder' && b.kind === 'reminder') return (a.remindAt || '').localeCompare(b.remindAt || '');
+      if (a.kind === 'todo' && b.kind === 'todo' && Boolean(a.completed) !== Boolean(b.completed)) return a.completed ? 1 : -1;
+      return (b.updatedAt || b.updated || '').localeCompare(a.updatedAt || a.updated || '');
+    });
+    const emptyMessages = {
+      all: ['Ruang ini masih kosong', 'Mulai dengan catatan, daftar tugas, atau pengingat pertama Anda.', 'note', '＋ Buat catatan'],
+      note: ['Belum ada catatan', 'Simpan prompt, ide, tulisan, atau informasi yang ingin Anda temukan lagi.', 'note', '＋ Tulis catatan'],
+      todo: ['Belum ada to-do', 'Catat langkah kecil yang ingin Anda selesaikan.', 'todo', '＋ Buat to-do'],
+      reminder: ['Belum ada pengingat', 'Tambahkan tanggal dan waktu, lalu simpan ke kalender HP.', 'reminder', '＋ Buat pengingat']
+    };
+    const [emptyTitle, emptyCopy, emptyKind, emptyAction] = emptyMessages[notesFilter];
+    return `${pageHead('Ruang catatan', 'Catatan, daftar tugas, dan pengingat tersusun di satu tempat.', `<button class="button" data-modal="note">＋ Tambah</button>`)}
+      <div class="note-filter-bar" role="group" aria-label="Filter jenis catatan">${filters.map(([key, label]) => `<button type="button" class="tab-button${notesFilter === key ? ' active' : ''}" data-note-filter="${key}" aria-pressed="${notesFilter === key}">${label}<span>${counts[key]}</span></button>`).join('')}</div>
+      ${visible.length ? `<div class="note-grid">${visible.map(noteCard).join('')}</div>` : `<section class="panel">${empty(bookIcon, emptyTitle, emptyCopy, `<button class="button small" data-modal="note" data-note-kind="${emptyKind}">${emptyAction}</button>`)}</section>`}`;
   }
   function settings() {
     const groups = [['income', 'Kategori pemasukan'], ['expense', 'Kategori pengeluaran'], ['debt', 'Kategori cicilan']];
@@ -231,7 +264,14 @@
     detailModal(tx.title || tx.category || 'Rincian transaksi', `${label} · ${dateLabel(tx.date)}`, `<div class="detail-amount ${tx.type === 'expense' ? 'negative' : ''}">${tx.type === 'expense' ? '−' : '+'}${money(tx.amount)}</div><dl class="detail-list"><div><dt>Kategori</dt><dd>${escapeHtml(tx.category || 'Lainnya')}</dd></div><div><dt>Tanggal</dt><dd>${dateLabel(tx.date)}</dd></div>${tx.source ? `<div><dt>Sumber dana</dt><dd>${escapeHtml(tx.source)}</dd></div>` : ''}${tx.entryMethod ? `<div><dt>Dicatat melalui</dt><dd>${escapeHtml(tx.entryMethod === 'photo-ocr' ? 'Baca dari foto' : tx.entryMethod === 'business' ? 'Rekap usaha' : tx.entryMethod)}</dd></div>` : ''}${tx.note ? `<div class="detail-note"><dt>Catatan</dt><dd>${escapeHtml(tx.note)}</dd></div>` : ''}</dl>`);
   }
   function openNoteDetails(note) {
-    detailModal(note.title || 'Tanpa judul', `Catatan · diubah ${dateLabel(note.updated, { day: 'numeric', month: 'long', year: 'numeric' })}`, `<div class="note-detail-body">${escapeHtml(note.body)}</div>`, `<button class="button secondary" type="button" data-action="copy-note" data-id="${note.id}">Salin</button><button class="button" type="button" data-action="edit-note" data-id="${note.id}">Ubah catatan</button>`);
+    const kind = note.kind || 'note';
+    const label = { note: 'Catatan', todo: 'To-do', reminder: 'Pengingat' }[kind] || 'Catatan';
+    const reminderDate = note.remindAt ? new Date(note.remindAt) : null;
+    const hasReminder = Boolean(reminderDate && !Number.isNaN(reminderDate.getTime()));
+    const reminder = kind === 'reminder' && hasReminder ? `<div class="note-reminder-detail"><strong>Waktu pengingat</strong><span>${new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(reminderDate)}</span></div>` : '';
+    const todo = kind === 'todo' ? `<div class="note-reminder-detail"><strong>Status</strong><span>${note.completed ? 'Selesai' : 'Belum selesai'}</span></div>` : '';
+    const actions = `${kind === 'note' ? `<button class="button secondary" type="button" data-action="copy-note" data-id="${note.id}">Salin</button>` : ''}${kind === 'reminder' && hasReminder ? `<button class="button secondary" type="button" data-action="calendar-reminder" data-id="${note.id}">Unduh pengingat kalender</button>` : ''}<button class="button" type="button" data-action="edit-note" data-id="${note.id}">Ubah ${label.toLowerCase()}</button>`;
+    detailModal(note.title || (kind === 'todo' ? 'To-do tanpa judul' : 'Tanpa judul'), `${label} · diubah ${dateLabel(note.updated, { day: 'numeric', month: 'long', year: 'numeric' })}`, `${reminder}${todo}<div class="note-detail-body">${escapeHtml(note.body || '')}</div>${kind === 'reminder' ? '<p class="field-hint note-calendar-hint">Berkas kalender menyertakan alarm. Setelah diunduh, buka berkas dan simpan acaranya di Kalender HP.</p>' : ''}`, actions);
   }
   function selectOptions(options, selected = '') { return options.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
   function amountField(label, name, value = '') { return `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="number" min="0" step="1" inputmode="numeric" value="${value}" placeholder="0" required></div>`; }
@@ -382,11 +422,70 @@
       data.transactions.push({ id: crypto.randomUUID(), type: 'expense', title: `Pembayaran cicilan · ${item.name}`, category: 'Cicilan', date: fd.get('date'), amount, note: '', created: timestamp, updatedAt: timestamp }); save();
     }, 'Simpan pembayaran');
   }
-  function openNote(note = null) {
-    modal(note ? 'Ubah catatan' : 'Catatan baru', 'Tulis bebas dan simpan untuk dibuka kembali kapan saja.', `<div class="form-grid"><div class="field full"><label for="note-title">Judul</label><input id="note-title" name="title" maxlength="100" value="${escapeHtml(note?.title || '')}" placeholder="Contoh: Ide menu baru"></div><div class="field full"><label for="note-body">Isi catatan</label><textarea id="note-body" name="body" maxlength="12000" placeholder="Tulis prompt, tulisan, data, atau ide di sini…" required>${escapeHtml(note?.body || '')}</textarea></div></div>`, fd => {
-      const timestamp = new Date().toISOString(); const entry = { id: note?.id || crypto.randomUUID(), title: fd.get('title').trim(), body: fd.get('body').trim(), updated: isoToday, updatedAt: timestamp };
-      if (note) data.notes[data.notes.findIndex(x => x.id === note.id)] = entry; else data.notes.push(entry); save();
-    }, 'Simpan catatan');
+  function localDateTimeValue(date) {
+    const candidate = date ? (date instanceof Date ? date : new Date(date)) : null;
+    const value = candidate && !Number.isNaN(candidate.getTime()) ? candidate : new Date(Date.now() + 60 * 60_000);
+    const shifted = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+    return shifted.toISOString().slice(0, 16);
+  }
+  function openNote(note = null, initialKind = 'note') {
+    const kind = note?.kind || 'note';
+    const labels = { note: 'Catatan', todo: 'To-do', reminder: 'Pengingat' };
+    modal(note ? `Ubah ${labels[kind].toLowerCase()}` : `${labels[initialKind] || 'Catatan'} baru`, kind === 'reminder' || initialKind === 'reminder' ? 'Atur waktu, lalu simpan acaranya ke kalender HP dengan alarm.' : 'Simpan ide atau langkah yang ingin Anda ingat.', `<div class="form-grid"><div class="field full"><label for="note-kind">Jenis</label><select id="note-kind" name="kind">${[['note','Catatan'],['todo','To-do'],['reminder','Pengingat']].map(([value,label]) => `<option value="${value}" ${value === kind || (!note && value === initialKind) ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="field full"><label for="note-title">Judul</label><input id="note-title" name="title" maxlength="100" value="${escapeHtml(note?.title || '')}" placeholder="Contoh: Bayar tagihan listrik"></div><div class="field full"><label for="note-body">Isi</label><textarea id="note-body" name="body" maxlength="12000" placeholder="Tulis catatan atau langkah yang perlu dilakukan…" required>${escapeHtml(note?.body || '')}</textarea></div><div class="field full note-reminder-fields"><label for="note-remind-at">Tanggal dan waktu</label><input id="note-remind-at" name="remindAt" type="datetime-local" value="${localDateTimeValue(note?.remindAt ? new Date(note.remindAt) : undefined)}"><small class="field-hint">Simpan pengingat sebagai acara kalender agar alarm HP mengikuti setelan Kalender Anda.</small></div></div>`, fd => {
+      const selectedKind = fd.get('kind');
+      const reminderValue = fd.get('remindAt');
+      if (selectedKind === 'reminder' && (!reminderValue || Number.isNaN(Date.parse(reminderValue)))) { formError('Pilih tanggal dan waktu pengingat yang valid.'); return false; }
+      const remindAt = selectedKind === 'reminder' ? new Date(reminderValue).toISOString() : null;
+      const title = fd.get('title').trim();
+      if (selectedKind !== 'note' && !title) { formError('Isi judul agar tugas atau pengingat mudah dikenali.'); return false; }
+      const timestamp = new Date().toISOString();
+      const entry = { ...note, id: note?.id || crypto.randomUUID(), kind: selectedKind, title, body: fd.get('body').trim(), remindAt, completed: selectedKind === 'todo' ? Boolean(note?.completed) : false, completedAt: selectedKind === 'todo' ? (note?.completedAt || null) : null, updated: isoToday, created: note?.created || timestamp, updatedAt: timestamp };
+      if (note) data.notes[data.notes.findIndex(item => item.id === note.id)] = entry; else data.notes.push(entry);
+      save();
+    }, kind === 'reminder' || initialKind === 'reminder' ? 'Simpan pengingat' : kind === 'todo' || initialKind === 'todo' ? 'Simpan to-do' : 'Simpan catatan');
+    const form = el('#active-form');
+    const syncKindFields = () => {
+      const selectedKind = el('#note-kind', form).value;
+      const isReminder = selectedKind === 'reminder';
+      el('.note-reminder-fields', form).hidden = !isReminder;
+      el('#note-remind-at', form).required = isReminder;
+      el('#note-title', form).required = selectedKind !== 'note';
+      const submit = form.querySelector('button[type="submit"]');
+      submit.textContent = selectedKind === 'reminder' ? 'Simpan pengingat' : selectedKind === 'todo' ? 'Simpan to-do' : 'Simpan catatan';
+    };
+    el('#note-kind', form).addEventListener('change', syncKindFields);
+    syncKindFields();
+  }
+  function calendarText(value) {
+    return String(value || '').replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+  }
+  function foldCalendarLine(line) {
+    let result = '', segment = '', bytes = 0;
+    for (const char of line) {
+      const size = new TextEncoder().encode(char).length;
+      if (bytes + size > 74) { result += segment + '\r\n '; segment = ''; bytes = 0; }
+      segment += char; bytes += size;
+    }
+    return result + segment;
+  }
+  function downloadCalendarReminder(note) {
+    const start = new Date(note.remindAt);
+    if (Number.isNaN(start.getTime())) { toast('Tanggal pengingat tidak valid.', 'error'); return; }
+    const end = new Date(start.getTime() + 5 * 60_000);
+    const utc = date => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const lines = [
+      'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Ruang Arus//Pengingat//ID','CALSCALE:GREGORIAN','METHOD:PUBLISH',
+      'BEGIN:VEVENT',`UID:${note.id}@ruang-arus`,`DTSTAMP:${utc(new Date())}`,`DTSTART:${utc(start)}`,`DTEND:${utc(end)}`,
+      `SUMMARY:${calendarText(note.title || 'Pengingat Ruang Arus')}`,`DESCRIPTION:${calendarText(note.body || '')}`,
+      'BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${calendarText(note.title || 'Pengingat Ruang Arus')}`,'TRIGGER:PT0M','END:VALARM','END:VEVENT','END:VCALENDAR'
+    ];
+    const blob = new Blob([lines.map(foldCalendarLine).join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const filename = (note.title || 'pengingat-ruang-arus').normalize('NFKD').replace(/\\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pengingat-ruang-arus';
+    link.href = url; link.download = `${filename}.ics`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    toast('Kalender siap diunduh. Buka berkasnya untuk menyimpan alarm di Kalender HP.');
   }
   function openCategory(group) {
     const labels = { income: 'pemasukan', expense: 'pengeluaran', debt: 'cicilan' };
@@ -432,11 +531,12 @@
     const authButton = event.target.closest('[data-auth-mode]'); if (authButton) { event.preventDefault(); const form = authButton.closest('form'); if (form) accountSubmit(form, authButton.dataset.authMode); return; }
     const pageButton = event.target.closest('[data-page]'); if (pageButton) { setPage(pageButton.dataset.page); return; }
     const monthButton = event.target.closest('[data-month]'); if (monthButton) { monthOffset += Number(monthButton.dataset.month); render(); return; }
+    const noteFilter = event.target.closest('[data-note-filter]'); if (noteFilter) { notesFilter = noteFilter.dataset.noteFilter; render(); return; }
     const tab = event.target.closest('[data-tab]'); if (tab) { if (personalTab !== tab.dataset.tab) { personalTab = tab.dataset.tab; history.pushState(routeState(), '', location.href); render(); } return; }
     const modalButton = event.target.closest('[data-modal]'); if (modalButton) {
       const kind = modalButton.dataset.modal;
       if (kind === 'transaction') openTransaction(modalButton.dataset.type || 'expense');
-      if (kind === 'business') openBusiness(); if (kind === 'installment') openInstallment(); if (kind === 'note') openNote(); if (kind === 'category') openCategory(modalButton.dataset.group);
+      if (kind === 'business') openBusiness(); if (kind === 'installment') openInstallment(); if (kind === 'note') openNote(null, modalButton.dataset.noteKind || 'note'); if (kind === 'category') openCategory(modalButton.dataset.group);
       if (kind === 'budget') openBudget(); if (kind === 'savings-goal') openSavingsGoal();
       return;
     }
@@ -444,6 +544,8 @@
     const { action: name, id } = action.dataset;
     if (name === 'open-tx') { const tx = data.transactions.find(item => item.id === id); if (tx) openTransactionDetails(tx); }
     if (name === 'copy-note') { const note = data.notes.find(item => item.id === id); if (note) copyNote(note, action); }
+    if (name === 'calendar-reminder') { const note = data.notes.find(item => item.id === id); if (note?.remindAt) downloadCalendarReminder(note); }
+    if (name === 'toggle-todo') { const note = data.notes.find(item => item.id === id); if (note && (note.kind || 'note') === 'todo') { note.completed = !note.completed; note.completedAt = note.completed ? new Date().toISOString() : null; note.updated = isoToday; note.updatedAt = new Date().toISOString(); save(); } }
     if (name === 'delete-tx') remove(id, 'transactions', 'transaksi');
     if (name === 'delete-business') remove(id, 'business', 'rekap');
     if (name === 'delete-installment') remove(id, 'installments', 'cicilan');
