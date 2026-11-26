@@ -90,6 +90,8 @@ Deno.serve(async (request: Request) => {
     note: `Rekap otomatis dari Lalapan Legenda. Laba bersih: Rp ${rupiah(sourceNet)}.`,
     source: "lalapan-legenda",
     personalIncomeId: sourceNet > 0 ? incomeId : null,
+    created: importedAt,
+    updatedAt: importedAt,
   };
   const rows: Array<Record<string, unknown>> = [{
     user_id: userId,
@@ -117,6 +119,7 @@ Deno.serve(async (request: Request) => {
         entryMethod: "business",
         businessEntryId: businessId,
         created: importedAt,
+        updatedAt: importedAt,
       },
       deleted_at: null,
       updated_at: importedAt,
@@ -126,7 +129,7 @@ Deno.serve(async (request: Request) => {
       user_id: userId,
       record_type: "transaction",
       record_id: incomeId,
-      payload: { id: incomeId, deleted: true },
+      payload: { id: incomeId, deleted: true, updatedAt: importedAt },
       deleted_at: importedAt,
       updated_at: importedAt,
     });
