@@ -482,7 +482,7 @@
     const blob = new Blob([lines.map(foldCalendarLine).join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const filename = (note.title || 'pengingat-ruang-arus').normalize('NFKD').replace(/\\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pengingat-ruang-arus';
+    const filename = (note.title || 'pengingat-ruang-arus').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pengingat-ruang-arus';
     link.href = url; link.download = `${filename}.ics`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
     toast('Kalender siap diunduh. Buka berkasnya untuk menyimpan alarm di Kalender HP.');
