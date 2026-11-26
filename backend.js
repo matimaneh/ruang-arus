@@ -29,26 +29,87 @@
     }
     return s.access_token;
   }
+  const recordCollections = {
+    transaction: 'transactions',
+    business: 'business',
+    installment: 'installments',
+    note: 'notes',
+    savings_goal: 'savingsGoals',
+    savings_transfer: 'savingsTransfers'
+  };
   async function getSnapshot() {
     const t = await token();
-    const rows = await request('/rest/v1/finance_records?record_type=eq.app_state&record_id=eq.app-state&select=payload,updated_at&limit=1', {}, t);
-    const transactions = await request('/rest/v1/finance_records?record_type=eq.transaction&deleted_at=is.null&select=record_id,payload&limit=5000', {}, t);
-    const business = await request('/rest/v1/finance_records?record_type=eq.business&deleted_at=is.null&select=record_id,payload&limit=5000', {}, t);
-    const snapshot = rows?.[0] || null;
-    if (snapshot) {
-      snapshot.payload.transactions = [...new Map([...(snapshot.payload.transactions || []), ...(transactions || []).map(row => row.payload)].map(item => [item.id, item])).values()];
-      snapshot.payload.business = [...new Map([...(snapshot.payload.business || []), ...(business || []).map(row => row.payload)].map(item => [item.id, item])).values()];
-    } else if (transactions?.length || business?.length) return { payload: { transactions: transactions.map(row => row.payload), business: business.map(row => row.payload) } };
-    return snapshot;
+    const stateRows = await request('/rest/v1/finance_records?record_type=eq.app_state&record_id=eq.app-state&select=payload,updated_at&limit=1', {}, t);
+    const allRows = await request('/rest/v1/finance_records?record_type=in.%28transaction,business,installment,note,savings_goal,savings_transfer%29&select=record_type,record_id,payload,deleted_at&limit=5000', {}, t);
+    const payload = stateRows?.[0]?.payload ? structuredClone(stateRows[0].payload) : {};
+    const recordsByType = Object.fromEntries(Object.keys(recordCollections).map(type => [type, []]));
+    const seenTypes = new Set();
+    payload.syncDeletedRecords ||= [];
+    payload.syncDeletedAt ||= {};
+    payload.syncDeleted ||= [];
+    payload.syncDeletedBusiness ||= [];
+    for (const row of allRows || []) {
+      const collection = recordCollections[row.record_type];
+      if (!collection) continue;
+      seenTypes.add(row.record_type);
+      if (row.deleted_at) {
+        const id = row.record_id;
+        recordsByType[row.record_type].push({ id, deleted: true, updatedAt: row.deleted_at });
+        const old = Date.parse(payload.syncDeletedAt[id] || '') || 0;
+        if (Date.parse(row.deleted_at) > old) payload.syncDeletedAt[id] = row.deleted_at;
+        if (!payload.syncDeleted.includes(id)) payload.syncDeleted.push(id);
+        if (row.record_type === 'business' && !payload.syncDeletedBusiness.includes(id)) payload.syncDeletedBusiness.push(id);
+        const key = row.record_type + ':' + id;
+        const tombstone = { id, recordType: row.record_type, deletedAt: row.deleted_at };
+        const existing = payload.syncDeletedRecords.find(item => item.recordType + ':' + item.id === key);
+        if (!existing) payload.syncDeletedRecords.push(tombstone);
+        else if (Date.parse(row.deleted_at) > Date.parse(existing.deletedAt || '')) existing.deletedAt = row.deleted_at;
+      } else {
+        recordsByType[row.record_type].push(row.payload);
+      }
+    }
+    for (const [type, collection] of Object.entries(recordCollections)) {
+      if (seenTypes.has(type)) payload[collection] = recordsByType[type].filter(item => !item.deleted);
+    }
+    if (!stateRows?.length && !allRows?.length) return null;
+    return { payload };
   }
   async function putSnapshot(snapshot) {
     const t = await token();
     const user = await request('/auth/v1/user', {}, t);
-    const records = [{ user_id: user.id, record_type: 'app_state', record_id: 'app-state', payload: snapshot, deleted_at: null }];
-    for (const item of snapshot.transactions || []) records.push({ user_id: user.id, record_type: 'transaction', record_id: item.id, payload: item, deleted_at: null });
-    for (const item of snapshot.business || []) records.push({ user_id: user.id, record_type: 'business', record_id: item.id, payload: item, deleted_at: null });
-    for (const id of snapshot.syncDeleted || []) records.push({ user_id: user.id, record_type: 'transaction', record_id: id, payload: { id, deleted: true }, deleted_at: new Date().toISOString() });
-    for (const id of snapshot.syncDeletedBusiness || []) records.push({ user_id: user.id, record_type: 'business', record_id: id, payload: { id, deleted: true }, deleted_at: new Date().toISOString() });
+    const now = new Date().toISOString();
+    const records = [{ user_id: user.id, record_type: 'app_state', record_id: 'app-state', payload: snapshot, deleted_at: null, updated_at: now }];
+    const typedIds = new Set();
+    for (const [type, collection] of Object.entries(recordCollections)) {
+      for (const item of snapshot[collection] || []) {
+        typedIds.add(type + ':' + item.id);
+        records.push({ user_id: user.id, record_type: type, record_id: item.id, payload: item, deleted_at: null, updated_at: item.updatedAt || item.updated_at || item.updated || item.created || now });
+      }
+    }
+    const tombstones = new Map();
+    for (const item of snapshot.syncDeletedRecords || []) {
+      if (!item?.id || !recordCollections[item.recordType]) continue;
+      const key = item.recordType + ':' + item.id;
+      if (!typedIds.has(key)) tombstones.set(key, item);
+    }
+    const typedDeletedIds = new Set([...tombstones.values()].map(item => item.id));
+    for (const id of snapshot.syncDeleted || []) {
+      if (!typedDeletedIds.has(id) && !typedIds.has('transaction:' + id)) {
+        const deletedAt = snapshot.syncDeletedAt?.[id] || now;
+        const item = { id, recordType: 'transaction', deletedAt };
+        tombstones.set('transaction:' + id, item);
+      }
+    }
+    for (const id of snapshot.syncDeletedBusiness || []) {
+      if (!typedIds.has('business:' + id)) {
+        const deletedAt = snapshot.syncDeletedAt?.[id] || now;
+        tombstones.set('business:' + id, { id, recordType: 'business', deletedAt });
+      }
+    }
+    for (const item of tombstones.values()) {
+      const deletedAt = item.deletedAt || snapshot.syncDeletedAt?.[item.id] || now;
+      records.push({ user_id: user.id, record_type: item.recordType, record_id: item.id, payload: { id: item.id, deleted: true, updatedAt: deletedAt }, deleted_at: deletedAt, updated_at: deletedAt });
+    }
     await request('/rest/v1/finance_records?on_conflict=user_id%2Crecord_type%2Crecord_id', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify(records)
