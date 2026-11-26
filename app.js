@@ -4,8 +4,15 @@
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
     transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, budgetUpdatedAt: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedAt: {}, syncDeletedCategories: {},
-    categories: { income: ['Gaji', 'Pendapatan usaha', 'Pendapatan laba usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
+    categories: { income: ['Gaji', 'Pendapatan laba usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
+  const normalizeIncomeCategory = name => name === 'Pendapatan usaha' ? 'Pendapatan laba usaha' : name;
+  function normalizeStoredData(snapshot) {
+    const normalized = { ...snapshot };
+    if (Array.isArray(snapshot.transactions)) normalized.transactions = snapshot.transactions.map(item => item.category === 'Pendapatan usaha' ? { ...item, category: normalizeIncomeCategory(item.category), updatedAt: new Date().toISOString() } : item);
+    if (snapshot.categories) normalized.categories = { ...snapshot.categories, income: [...new Set((snapshot.categories.income || []).map(normalizeIncomeCategory))] };
+    return normalized;
+  }
   let data = load();
   let page = 'dashboard';
   let monthOffset = 0;
@@ -31,8 +38,9 @@
     try {
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!stored || typeof stored !== 'object') return structuredClone(defaults);
-      const categories = Object.fromEntries(Object.keys(defaults.categories).map(group => [group, [...new Set([...(defaults.categories[group] || []), ...(stored.categories?.[group] || [])])]]));
-      return { ...structuredClone(defaults), ...stored, budgetUpdatedAt: stored.budgetUpdatedAt || {}, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], syncDeletedAt: stored.syncDeletedAt || {}, syncDeletedCategories: stored.syncDeletedCategories || {}, categories };
+      const migrated = normalizeStoredData(stored);
+      const categories = Object.fromEntries(Object.keys(defaults.categories).map(group => [group, [...new Set([...(defaults.categories[group] || []), ...(migrated.categories?.[group] || [])])]]));
+      return { ...structuredClone(defaults), ...migrated, budgetUpdatedAt: migrated.budgetUpdatedAt || {}, syncDeleted: migrated.syncDeleted || [], syncDeletedBusiness: migrated.syncDeletedBusiness || [], syncDeletedAt: migrated.syncDeletedAt || {}, syncDeletedCategories: migrated.syncDeletedCategories || {}, categories };
     } catch { return structuredClone(defaults); }
   }
   let syncTimer;
@@ -238,6 +246,8 @@
     root.querySelector('[data-close-modal]').addEventListener('click', closeModal);
   }
   function mergeSnapshot(local, remote) {
+    local = normalizeStoredData(local);
+    remote = normalizeStoredData(remote);
     const merged = { ...structuredClone(defaults), ...local, categories: { ...defaults.categories, ...(local.categories || {}) } };
     const deleted = new Set([...(local.syncDeleted || []), ...(remote.syncDeleted || [])]); merged.syncDeleted = [...deleted];
     merged.syncDeletedBusiness = [...new Set([...(local.syncDeletedBusiness || []), ...(remote.syncDeletedBusiness || [])])];
@@ -336,7 +346,7 @@
       const personalIncome = data.transactions.find(tx => tx.id === entry.personalIncomeId || tx.businessEntryId === entry.id);
       const grossProfit = entry.turnover - entry.hpp;
       if (grossProfit > 0) {
-        const tx = { id: personalIncome?.id || crypto.randomUUID(), type: 'income', title: `Keuntungan usaha · ${dateLabel(date, { day: 'numeric', month: 'short' })}`, category: 'Pendapatan usaha', date, amount: grossProfit, note: `Omset ${money(entry.turnover)} − HPP ${money(entry.hpp)}. Biaya harian dicatat terpisah di ruang usaha.`, source: 'Usaha', entryMethod: 'business', businessEntryId: entry.id, created: personalIncome?.created || timestamp, updatedAt: timestamp };
+        const tx = { id: personalIncome?.id || crypto.randomUUID(), type: 'income', title: `Keuntungan usaha · ${dateLabel(date, { day: 'numeric', month: 'short' })}`, category: 'Pendapatan laba usaha', date, amount: grossProfit, note: `Omset ${money(entry.turnover)} − HPP ${money(entry.hpp)}. Biaya harian dicatat terpisah di ruang usaha.`, source: 'Usaha', entryMethod: 'business', businessEntryId: entry.id, created: personalIncome?.created || timestamp, updatedAt: timestamp };
         if (personalIncome) data.transactions[data.transactions.indexOf(personalIncome)] = tx; else data.transactions.push(tx);
         entry.personalIncomeId = tx.id;
         data.syncDeleted = (data.syncDeleted || []).filter(id => id !== tx.id);
@@ -344,7 +354,7 @@
         data.transactions = data.transactions.filter(tx => tx.id !== personalIncome.id);
         data.syncDeleted ||= []; data.syncDeleted.push(personalIncome.id); data.syncDeletedAt ||= {}; data.syncDeletedAt[personalIncome.id] = timestamp; delete entry.personalIncomeId;
       }
-      if (!data.categories.income.includes('Pendapatan usaha')) data.categories.income.push('Pendapatan usaha');
+      data.categories.income = [...new Set(data.categories.income.map(normalizeIncomeCategory))];
       save();
     });
   }
