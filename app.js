@@ -449,7 +449,13 @@
       const isReminder = selectedKind === 'reminder';
       el('.note-reminder-fields', form).hidden = !isReminder;
       el('#note-remind-at', form).required = isReminder;
+      el('#note-remind-at', form).disabled = !isReminder;
       el('#note-title', form).required = selectedKind !== 'note';
+      el('#modal-title').textContent = note ? `Ubah ${labels[selectedKind].toLowerCase()}` : `${labels[selectedKind]} baru`;
+      el('.modal-header p').textContent = selectedKind === 'reminder'
+        ? 'Atur waktu, lalu simpan acaranya ke kalender HP dengan alarm.'
+        : selectedKind === 'todo' ? 'Catat langkah yang ingin Anda selesaikan.'
+        : 'Simpan ide, tulisan, atau informasi yang ingin Anda ingat.';
       const submit = form.querySelector('button[type="submit"]');
       submit.textContent = selectedKind === 'reminder' ? 'Simpan pengingat' : selectedKind === 'todo' ? 'Simpan to-do' : 'Simpan catatan';
     };
