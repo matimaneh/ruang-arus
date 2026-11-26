@@ -1,5 +1,5 @@
-const CACHE = 'ruang-arus-v26';
-const CORE = ['./', './index.html?v=26', './style.css?v=26', './app.js?v=26', './backend.js?v=26', './backend-config.js?v=26', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'ruang-arus-v27';
+const CORE = ['./', './index.html?v=27', './style.css?v=27', './app.js?v=27', './backend.js?v=27', './backend-config.js?v=27', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {
