@@ -3,7 +3,7 @@
   const today = new Date();
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
-    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedCategories: {},
+    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, budgetUpdatedAt: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedCategories: {},
     categories: { income: ['Gaji', 'Pendapatan usaha', 'Pendapatan laba usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   let data = load();
@@ -32,10 +32,14 @@
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!stored || typeof stored !== 'object') return structuredClone(defaults);
       const categories = Object.fromEntries(Object.keys(defaults.categories).map(group => [group, [...new Set([...(defaults.categories[group] || []), ...(stored.categories?.[group] || [])])]]));
-      return { ...structuredClone(defaults), ...stored, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], syncDeletedCategories: stored.syncDeletedCategories || {}, categories };
+      return { ...structuredClone(defaults), ...stored, budgetUpdatedAt: stored.budgetUpdatedAt || {}, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], syncDeletedCategories: stored.syncDeletedCategories || {}, categories };
     } catch { return structuredClone(defaults); }
   }
   let syncTimer;
+  let syncInProgress = false;
+  let syncQueued = false;
+  let syncErrorAt = 0;
+  let syncErrorMessage = '';
   const pendingDeletions = new Map();
   let pendingImport = null;
   function saveLocal() { localStorage.setItem(KEY, JSON.stringify(data)); render(); }
@@ -172,7 +176,7 @@
   function settings() {
     const groups = [['income', 'Kategori pemasukan'], ['expense', 'Kategori pengeluaran'], ['debt', 'Kategori cicilan']];
     const account = window.RuangBackend.session();
-    const accountBlock = account?.user ? `<section class="panel settings-block"><h2>Akun & sinkronisasi antarponsel</h2><p>Masuk dengan akun yang sama di laptop dan HP. Data akun otomatis digabungkan dengan cloud saat aplikasi dibuka dan setelah perubahan tersimpan. Cache perangkat dipakai agar PWA tetap bisa dibuka offline; perubahan offline dikirim saat koneksi kembali.</p><div class="info-box sync"><strong>${escapeHtml(account.user.email || 'Akun Ruang Arus')}</strong>${window.RuangBackend.enabled() ? 'Sinkronisasi cloud aktif untuk akun ini.' : 'Masuk ke akun untuk mengaktifkan sinkronisasi cloud.'}</div><div class="toolbar" style="margin-top:14px"><button class="button" data-action="sync-now">↻ Sinkronkan sekarang</button><button class="button secondary" data-action="wa-code">Buat kode tautan WhatsApp</button><button class="button quiet" data-action="sign-out">Keluar akun</button></div><p id="whatsapp-code-result" class="field-hint"></p></section>` : `<section class="panel settings-block"><h2>Akun & sinkronisasi antarponsel</h2><p>Masuk dengan akun yang sama di laptop dan HP. Setelah masuk, catatan di perangkat ini otomatis digabungkan ke cloud dan disinkronkan.</p><form id="account-form" class="account-form"><div class="field"><label for="account-email">Email</label><input id="account-email" name="email" type="email" autocomplete="email" required></div><div class="field"><label for="account-password">Kata sandi</label><input id="account-password" name="password" type="password" autocomplete="current-password" minlength="8" required><small>Minimal 8 karakter. Kata sandi tidak disimpan oleh aplikasi.</small></div><div class="toolbar"><button class="button" type="submit" data-auth-mode="signin">Masuk</button><button class="button secondary" type="submit" data-auth-mode="signup">Buat akun</button></div><p id="account-message" class="field-hint" aria-live="polite"></p></form></section>`;
+    const accountBlock = account?.user ? `<section class="panel settings-block"><h2>Akun & sinkronisasi antarponsel</h2><p>Masuk dengan akun yang sama di laptop dan HP. Data cloud diperiksa saat aplikasi dibuka, setelah disimpan, dan setiap 15 detik saat aplikasi aktif. Cache lokal membantu PWA berjalan offline; perubahan offline dikirim saat koneksi kembali.</p><div class="info-box sync"><strong>${escapeHtml(account.user.email || 'Akun Ruang Arus')}</strong>${window.RuangBackend.enabled() ? 'Sinkronisasi cloud aktif untuk akun ini.' : 'Masuk ke akun untuk mengaktifkan sinkronisasi cloud.'}</div><div class="toolbar" style="margin-top:14px"><button class="button" data-action="sync-now">↻ Sinkronkan sekarang</button><button class="button secondary" data-action="wa-code">Buat kode tautan WhatsApp</button><button class="button quiet" data-action="sign-out">Keluar akun</button></div><p id="whatsapp-code-result" class="field-hint"></p></section>` : `<section class="panel settings-block"><h2>Akun & sinkronisasi antarponsel</h2><p>Masuk dengan akun yang sama di laptop dan HP. Setelah masuk, catatan di perangkat ini otomatis digabungkan ke cloud dan disinkronkan.</p><form id="account-form" class="account-form"><div class="field"><label for="account-email">Email</label><input id="account-email" name="email" type="email" autocomplete="email" required></div><div class="field"><label for="account-password">Kata sandi</label><input id="account-password" name="password" type="password" autocomplete="current-password" minlength="8" required><small>Minimal 8 karakter. Kata sandi tidak disimpan oleh aplikasi.</small></div><div class="toolbar"><button class="button" type="submit" data-auth-mode="signin">Masuk</button><button class="button secondary" type="submit" data-auth-mode="signup">Buat akun</button></div><p id="account-message" class="field-hint" aria-live="polite"></p></form></section>`;
     return `${pageHead('Pengaturan & data', 'Atur kategori dan kelola salinan data Anda.')}
       ${accountBlock}
       <section class="panel settings-block"><h2>Kategori pencatatan</h2><p>Sesuaikan dengan istilah yang paling mudah Anda kenali. Menghapus kategori tidak menghapus catatan lama.</p><div class="category-settings">${groups.map(([key, label]) => `<div class="category-group"><div class="category-group-head"><strong>${label}</strong><button class="button secondary small" data-modal="category" data-group="${key}">＋ Tambah kategori</button></div><div class="category-pills">${data.categories[key].map((item, index) => `<span class="category-pill">${escapeHtml(item)}${index > 0 ? `<button data-action="delete-category" data-group="${key}" data-index="${index}" aria-label="Hapus kategori ${escapeHtml(item)}">×</button>` : ''}</span>`).join('')}</div></div>`).join('')}</div></section>
@@ -225,7 +229,7 @@
   function amountField(label, name, value = '') { return `<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="number" min="0" step="1" inputmode="numeric" value="${value}" placeholder="0" required></div>`; }
   function openTransaction(type = 'expense', preset = null) {
     const isIncome = type === 'income'; const group = isIncome ? 'income' : 'expense';
-    modal(isIncome ? 'Catat pemasukan' : 'Catat pengeluaran', isIncome ? 'Simpan gaji atau pemasukan lain yang Anda terima.' : 'Simpan pengeluaran agar alur uang harian tetap jelas.', `<div class="form-grid"><div class="field full"><label for="tx-title">Keterangan</label><input id="tx-title" name="title" maxlength="80" value="${escapeHtml(preset?.title || '')}" placeholder="Contoh: Gaji bulan November" required></div><div class="field"><label for="tx-category">Kategori</label><select id="tx-category" name="category">${selectOptions(data.categories[group], preset?.category || '')}</select></div><div class="field"><label for="tx-date">Tanggal</label><input id="tx-date" name="date" type="date" value="${preset?.date || isoToday}" required></div><div class="field full"><label for="tx-amount">Jumlah (rupiah)</label><input id="tx-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${preset?.amount || ''}" placeholder="0" required></div><div class="field full"><label for="tx-note">Catatan tambahan <span class="field-hint">(opsional)</span></label><input id="tx-note" name="note" maxlength="180" placeholder="Tambahkan detail bila perlu"></div></div>`, fd => { data.transactions.push({ id: crypto.randomUUID(), type, title: fd.get('title').trim(), category: fd.get('category'), date: fd.get('date'), amount: Number(fd.get('amount')), note: fd.get('note').trim(), entryMethod: preset?.entryMethod || 'manual', created: new Date().toISOString() }); save(); });
+    modal(isIncome ? 'Catat pemasukan' : 'Catat pengeluaran', isIncome ? 'Simpan gaji atau pemasukan lain yang Anda terima.' : 'Simpan pengeluaran agar alur uang harian tetap jelas.', `<div class="form-grid"><div class="field full"><label for="tx-title">Keterangan</label><input id="tx-title" name="title" maxlength="80" value="${escapeHtml(preset?.title || '')}" placeholder="Contoh: Gaji bulan November" required></div><div class="field"><label for="tx-category">Kategori</label><select id="tx-category" name="category">${selectOptions(data.categories[group], preset?.category || '')}</select></div><div class="field"><label for="tx-date">Tanggal</label><input id="tx-date" name="date" type="date" value="${preset?.date || isoToday}" required></div><div class="field full"><label for="tx-amount">Jumlah (rupiah)</label><input id="tx-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${preset?.amount || ''}" placeholder="0" required></div><div class="field full"><label for="tx-note">Catatan tambahan <span class="field-hint">(opsional)</span></label><input id="tx-note" name="note" maxlength="180" placeholder="Tambahkan detail bila perlu"></div></div>`, fd => { const timestamp = new Date().toISOString(); data.transactions.push({ id: crypto.randomUUID(), type, title: fd.get('title').trim(), category: fd.get('category'), date: fd.get('date'), amount: Number(fd.get('amount')), note: fd.get('note').trim(), entryMethod: preset?.entryMethod || 'manual', created: timestamp, updatedAt: timestamp }); save(); });
   }
   function openPhotoCapture() {
     modal('Baca dari foto', 'Pilih foto atau screenshot struk. Gambar dianalisis di browser pada perangkat ini dan tidak diunggah.', `<div class="field"><label for="receipt-image">Foto atau screenshot</label><input id="receipt-image" type="file" accept="image/*" capture="environment" required><small>Untuk hasil terbaik, pastikan nominal dan teks struk terbaca.</small></div><div id="ocr-status" class="info-box sync" style="margin-top:14px">OCR bahasa Indonesia memerlukan koneksi internet saat pertama kali memuat mesin baca.</div>`, () => false, 'Tutup');
@@ -239,24 +243,45 @@
     merged.syncDeletedBusiness = [...new Set([...(local.syncDeletedBusiness || []), ...(remote.syncDeletedBusiness || [])])];
     merged.syncDeletedCategories = { ...(remote.syncDeletedCategories || {}), ...(local.syncDeletedCategories || {}) };
     const keys = ['transactions', 'business', 'installments', 'notes', 'savingsGoals', 'savingsTransfers'];
+    const writeTime = item => Date.parse(item.updatedAt || item.updated_at || item.updated || item.created || '') || 0;
     for (const key of keys) {
       const all = new Map();
-      for (const item of [...(remote[key] || []), ...(local[key] || [])]) if (!deleted.has(item.id)) all.set(item.id, item);
+      for (const item of [...(local[key] || []), ...(remote[key] || [])]) {
+        if (deleted.has(item.id)) continue;
+        const current = all.get(item.id);
+        if (!current || writeTime(item) >= writeTime(current)) all.set(item.id, item);
+      }
       merged[key] = [...all.values()];
     }
     merged.categories = Object.fromEntries(Object.keys(defaults.categories).map(key => [key, [...new Set([...(remote.categories?.[key] || []), ...(local.categories?.[key] || [])])].filter(value => !merged.syncDeletedCategories[key]?.includes(value))]));
-    merged.budgets = { ...(remote.budgets || {}), ...(local.budgets || {}) };
+    merged.budgetUpdatedAt = { ...(remote.budgetUpdatedAt || {}), ...(local.budgetUpdatedAt || {}) };
+    merged.budgets = { ...(remote.budgets || {}) };
+    for (const [key, value] of Object.entries(local.budgets || {})) {
+      if (!(key in merged.budgets) || (Date.parse(local.budgetUpdatedAt?.[key] || '') || 0) >= (Date.parse(remote.budgetUpdatedAt?.[key] || '') || 0)) merged.budgets[key] = value;
+    }
     return merged;
   }
   async function syncCloud(announce = true) {
-    if (!window.RuangBackend.enabled()) return;
+    if (!window.RuangBackend.enabled() || pendingDeletions.size) return;
+    if (syncInProgress) { syncQueued = true; return; }
+    syncInProgress = true;
     try {
       const row = await window.RuangBackend.getSnapshot();
-      if (row?.payload) data = mergeSnapshot(data, row.payload);
-      await window.RuangBackend.putSnapshot(data);
+      const remote = row?.payload || null;
+      if (remote) data = mergeSnapshot(data, remote);
+      const needsUpload = !remote || JSON.stringify(data) !== JSON.stringify(remote);
+      if (needsUpload) await window.RuangBackend.putSnapshot(data);
       localStorage.setItem(KEY, JSON.stringify(data)); render();
       if (announce) toast('Sinkronisasi selesai. Perangkat dan cloud sudah diperbarui.');
-    } catch (error) { toast(`Sinkronisasi belum berhasil: ${error.message}`, 'error'); }
+      syncErrorAt = 0; syncErrorMessage = '';
+    } catch (error) {
+      const message = `Sinkronisasi belum berhasil: ${error.message}`;
+      if (announce || message !== syncErrorMessage || Date.now() - syncErrorAt > 60_000) toast(message, 'error');
+      syncErrorMessage = message; syncErrorAt = Date.now();
+    } finally {
+      syncInProgress = false;
+      if (syncQueued) { syncQueued = false; setTimeout(() => syncCloud(false), 300); }
+    }
   }
   function accountSubmit(form, mode) {
     const fd = new FormData(form), msg = form.querySelector('#account-message');
@@ -269,13 +294,13 @@
   }
   function openBudget() {
     const current = Number(data.budgets[selectedMonth()] || 0);
-    modal('Atur budget bulanan', `Tetapkan batas pengeluaran pribadi untuk ${monthName()}.`, `<div class="form-grid"><div class="field full"><label for="budget-amount">Budget pengeluaran (rupiah)</label><input id="budget-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${current || ''}" placeholder="Contoh: 3000000" required></div><p class="field-hint field full">Budget hanya alat bantu pencatatan. Usaha dan tabungan tidak dihitung sebagai pengeluaran pribadi di bagian ini.</p>${current ? '<button type="button" class="button quiet field full" data-action="clear-budget">Hapus budget bulan ini</button>' : ''}</div>`, fd => { data.budgets[selectedMonth()] = Number(fd.get('amount')); save(); }, 'Simpan budget');
+    modal('Atur budget bulanan', `Tetapkan batas pengeluaran pribadi untuk ${monthName()}.`, `<div class="form-grid"><div class="field full"><label for="budget-amount">Budget pengeluaran (rupiah)</label><input id="budget-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${current || ''}" placeholder="Contoh: 3000000" required></div><p class="field-hint field full">Budget hanya alat bantu pencatatan. Usaha dan tabungan tidak dihitung sebagai pengeluaran pribadi di bagian ini.</p>${current ? '<button type="button" class="button quiet field full" data-action="clear-budget">Hapus budget bulan ini</button>' : ''}</div>`, fd => { data.budgets[selectedMonth()] = Number(fd.get('amount')); data.budgetUpdatedAt[selectedMonth()] = new Date().toISOString(); save(); }, 'Simpan budget');
   }
   function openSavingsGoal() {
     modal('Buat target tabungan', 'Beri nama tujuan dan tentukan nominal yang ingin dicapai.', `<div class="form-grid"><div class="field full"><label for="goal-title">Nama tujuan</label><input id="goal-title" name="title" maxlength="70" placeholder="Contoh: Dana pendidikan" required></div>${amountField('Nominal target', 'target')}${amountField('Sudah disisihkan', 'saved', '0')}<div class="field full"><label for="goal-note">Catatan <span class="field-hint">(opsional)</span></label><input id="goal-note" name="note" maxlength="150" placeholder="Contoh: target sebelum Juni"></div></div>`, fd => {
       const target = Number(fd.get('target')), saved = Number(fd.get('saved'));
       if (saved > target) { formError('Nominal yang disisihkan tidak boleh melebihi target.'); return false; }
-      data.savingsGoals.push({ id: crypto.randomUUID(), title: fd.get('title').trim(), target, saved, note: fd.get('note').trim(), created: isoToday }); save();
+      const timestamp = new Date().toISOString(); data.savingsGoals.push({ id: crypto.randomUUID(), title: fd.get('title').trim(), target, saved, note: fd.get('note').trim(), created: timestamp, updatedAt: timestamp }); save();
     }, 'Simpan target');
   }
   function openSavingTransfer(goal) {
@@ -284,8 +309,8 @@
     modal(`Setor ke ${escapeHtml(goal.title)}`, `Sisa target ${money(left)}. Setoran ini mengurangi sisa uang bulan berjalan.`, `<div class="form-grid"><div class="field full"><label for="saving-amount">Nominal setoran (rupiah)</label><input id="saving-amount" name="amount" type="number" min="1" max="${left}" step="1" inputmode="numeric" placeholder="0" required></div><div class="field full"><label for="saving-date">Tanggal disisihkan</label><input id="saving-date" name="date" type="date" value="${isoToday}" required></div></div>`, fd => {
       const amount = Number(fd.get('amount'));
       if (amount > left) { formError(`Setoran tidak boleh melebihi sisa target ${money(left)}.`); return false; }
-      goal.saved = Number(goal.saved) + amount;
-      data.savingsTransfers.push({ id: crypto.randomUUID(), goalId: goal.id, amount, date: fd.get('date') }); save();
+      const timestamp = new Date().toISOString(); goal.saved = Number(goal.saved) + amount; goal.updatedAt = timestamp;
+      data.savingsTransfers.push({ id: crypto.randomUUID(), goalId: goal.id, amount, date: fd.get('date'), created: timestamp, updatedAt: timestamp }); save();
     }, 'Simpan setoran');
   }
   function openQuickMenu() {
@@ -298,12 +323,13 @@
     modal(existing ? 'Perbarui rekap hari ini' : 'Catat keuangan usaha', 'Laba bersih usaha dihitung setelah HPP dan biaya. Omset dikurangi HPP otomatis dicatat sebagai pendapatan usaha di ruang pribadi.', `<div class="form-grid"><div class="field full"><label for="business-date">Tanggal rekap</label><input id="business-date" name="date" type="date" value="${existing?.date || isoToday}" required></div>${amountField('Total omset', 'turnover', existing?.turnover || '')}${amountField('HPP', 'hpp', existing?.hpp || '')}${amountField('Biaya per hari', 'cost', existing?.cost || '')}<div class="field full"><label for="business-note">Catatan <span class="field-hint">(opsional)</span></label><input id="business-note" name="note" maxlength="150" value="${escapeHtml(existing?.note || '')}" placeholder="Contoh: ramai saat makan siang"></div></div>`, fd => {
       const date = fd.get('date'); const previous = data.business.findIndex(x => x.date === date);
       const oldEntry = previous >= 0 ? data.business[previous] : null;
-      const entry = { ...oldEntry, id: oldEntry?.id || crypto.randomUUID(), date, turnover: Number(fd.get('turnover')), hpp: Number(fd.get('hpp')), cost: Number(fd.get('cost')), note: fd.get('note').trim() };
+      const timestamp = new Date().toISOString();
+      const entry = { ...oldEntry, id: oldEntry?.id || crypto.randomUUID(), date, turnover: Number(fd.get('turnover')), hpp: Number(fd.get('hpp')), cost: Number(fd.get('cost')), note: fd.get('note').trim(), created: oldEntry?.created || timestamp, updatedAt: timestamp };
       if (previous >= 0) data.business[previous] = entry; else data.business.push(entry);
       const personalIncome = data.transactions.find(tx => tx.id === entry.personalIncomeId || tx.businessEntryId === entry.id);
       const grossProfit = entry.turnover - entry.hpp;
       if (grossProfit > 0) {
-        const tx = { id: personalIncome?.id || crypto.randomUUID(), type: 'income', title: `Keuntungan usaha · ${dateLabel(date, { day: 'numeric', month: 'short' })}`, category: 'Pendapatan usaha', date, amount: grossProfit, note: `Omset ${money(entry.turnover)} − HPP ${money(entry.hpp)}. Biaya harian dicatat terpisah di ruang usaha.`, source: 'Usaha', entryMethod: 'business', businessEntryId: entry.id, created: personalIncome?.created || new Date().toISOString() };
+        const tx = { id: personalIncome?.id || crypto.randomUUID(), type: 'income', title: `Keuntungan usaha · ${dateLabel(date, { day: 'numeric', month: 'short' })}`, category: 'Pendapatan usaha', date, amount: grossProfit, note: `Omset ${money(entry.turnover)} − HPP ${money(entry.hpp)}. Biaya harian dicatat terpisah di ruang usaha.`, source: 'Usaha', entryMethod: 'business', businessEntryId: entry.id, created: personalIncome?.created || timestamp, updatedAt: timestamp };
         if (personalIncome) data.transactions[data.transactions.indexOf(personalIncome)] = tx; else data.transactions.push(tx);
         entry.personalIncomeId = tx.id;
         data.syncDeleted = (data.syncDeleted || []).filter(id => id !== tx.id);
@@ -319,7 +345,7 @@
     modal('Tambah cicilan', 'Catat total kewajiban dan jumlah yang sudah Anda bayarkan sejauh ini.', `<div class="form-grid"><div class="field full"><label for="debt-name">Nama cicilan</label><input id="debt-name" name="name" maxlength="80" placeholder="Contoh: Cicilan motor" required></div><div class="field"><label for="debt-category">Kategori</label><select id="debt-category" name="category">${selectOptions(data.categories.debt)}</select></div><div class="field">${''}</div>${amountField('Total cicilan', 'total')}${amountField('Sudah dibayar', 'paid', '0')}<div class="field full"><label for="debt-note">Catatan <span class="field-hint">(opsional)</span></label><input id="debt-note" name="note" maxlength="150" placeholder="Contoh: jatuh tempo tanggal 10"></div></div>`, fd => {
       const total = Number(fd.get('total')), paid = Number(fd.get('paid'));
       if (paid > total) { formError('Jumlah yang sudah dibayar tidak boleh melebihi total cicilan.'); return false; }
-      data.installments.push({ id: crypto.randomUUID(), name: fd.get('name').trim(), category: fd.get('category'), total, paid, note: fd.get('note').trim(), created: new Date().toISOString() }); save();
+      const timestamp = new Date().toISOString(); data.installments.push({ id: crypto.randomUUID(), name: fd.get('name').trim(), category: fd.get('category'), total, paid, note: fd.get('note').trim(), created: timestamp, updatedAt: timestamp }); save();
     });
   }
   function payInstallment(item) {
@@ -327,13 +353,13 @@
     modal(`Bayar ${escapeHtml(item.name)}`, `Sisa cicilan saat ini ${money(left)}. Pembayaran juga dicatat sebagai pengeluaran pribadi.`, `<div class="form-grid"><div class="field full"><label for="pay-amount">Jumlah pembayaran (rupiah)</label><input id="pay-amount" name="amount" type="number" min="1" max="${left}" step="1" inputmode="numeric" placeholder="0" required></div><div class="field full"><label for="pay-date">Tanggal bayar</label><input id="pay-date" name="date" type="date" value="${isoToday}" required></div></div>`, fd => {
       const amount = Number(fd.get('amount'));
       if (amount > left) { formError(`Pembayaran tidak boleh melebihi sisa cicilan ${money(left)}.`); return false; }
-      item.paid = Number(item.paid) + amount;
-      data.transactions.push({ id: crypto.randomUUID(), type: 'expense', title: `Pembayaran cicilan · ${item.name}`, category: 'Cicilan', date: fd.get('date'), amount, note: '', created: new Date().toISOString() }); save();
+      const timestamp = new Date().toISOString(); item.paid = Number(item.paid) + amount; item.updatedAt = timestamp;
+      data.transactions.push({ id: crypto.randomUUID(), type: 'expense', title: `Pembayaran cicilan · ${item.name}`, category: 'Cicilan', date: fd.get('date'), amount, note: '', created: timestamp, updatedAt: timestamp }); save();
     }, 'Simpan pembayaran');
   }
   function openNote(note = null) {
     modal(note ? 'Ubah catatan' : 'Catatan baru', 'Tulis bebas dan simpan untuk dibuka kembali kapan saja.', `<div class="form-grid"><div class="field full"><label for="note-title">Judul</label><input id="note-title" name="title" maxlength="100" value="${escapeHtml(note?.title || '')}" placeholder="Contoh: Ide menu baru"></div><div class="field full"><label for="note-body">Isi catatan</label><textarea id="note-body" name="body" maxlength="12000" placeholder="Tulis prompt, tulisan, data, atau ide di sini…" required>${escapeHtml(note?.body || '')}</textarea></div></div>`, fd => {
-      const entry = { id: note?.id || crypto.randomUUID(), title: fd.get('title').trim(), body: fd.get('body').trim(), updated: isoToday };
+      const timestamp = new Date().toISOString(); const entry = { id: note?.id || crypto.randomUUID(), title: fd.get('title').trim(), body: fd.get('body').trim(), updated: isoToday, updatedAt: timestamp };
       if (note) data.notes[data.notes.findIndex(x => x.id === note.id)] = entry; else data.notes.push(entry); save();
     }, 'Simpan catatan');
   }
@@ -407,7 +433,7 @@
     if (name === 'wa-code') window.RuangBackend.makeLinkCode().then(code => { const target = el('#whatsapp-code-result'); if (target) target.textContent = `Kirim “hubungkan ${code}” ke nomor WhatsApp Business bot Anda dalam 15 menit.`; }).catch(error => toast(error.message, 'error'));
     if (name === 'read-photo') readPhoto();
     if (name === 'toggle-amounts') { amountsHidden = !amountsHidden; render(); }
-    if (name === 'clear-budget') { delete data.budgets[selectedMonth()]; save(); closeModal(); }
+    if (name === 'clear-budget') { data.budgets[selectedMonth()] = null; data.budgetUpdatedAt[selectedMonth()] = new Date().toISOString(); save(); closeModal(); }
     if (name === 'delete-category') { const { group, index } = action.dataset; if (Number(index) > 0) undoableDelete(crypto.randomUUID(), 'Kategori dihapus. Catatan lama tetap tersimpan.', () => ({ value: data.categories[group].splice(Number(index), 1)[0], index: Number(index), group }), snap => data.categories[snap.group].splice(snap.index, 0, snap.value), snap => { data.syncDeletedCategories ||= {}; data.syncDeletedCategories[snap.group] ||= []; data.syncDeletedCategories[snap.group].push(snap.value); }); }
     if (name === 'export') { exportData(); toast('Cadangan berhasil diunduh.'); } if (name === 'import') el('#import-file').click();
     if (name === 'apply-import') applyImport(); if (name === 'cancel-import') { pendingImport = null; render(); }
@@ -456,4 +482,7 @@
   history.replaceState(routeState(), '', location.href);
   render();
   if (window.RuangBackend.enabled()) setTimeout(() => syncCloud(false), 250);
+  setInterval(() => { if (!document.hidden) syncCloud(false); }, 15_000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncCloud(false); });
+  window.addEventListener('focus', () => syncCloud(false));
 })();
