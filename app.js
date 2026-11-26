@@ -3,7 +3,7 @@
   const today = new Date();
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
-    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, budgetUpdatedAt: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedCategories: {},
+    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, budgetUpdatedAt: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedAt: {}, syncDeletedCategories: {},
     categories: { income: ['Gaji', 'Pendapatan usaha', 'Pendapatan laba usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   let data = load();
@@ -32,7 +32,7 @@
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!stored || typeof stored !== 'object') return structuredClone(defaults);
       const categories = Object.fromEntries(Object.keys(defaults.categories).map(group => [group, [...new Set([...(defaults.categories[group] || []), ...(stored.categories?.[group] || [])])]]));
-      return { ...structuredClone(defaults), ...stored, budgetUpdatedAt: stored.budgetUpdatedAt || {}, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], syncDeletedCategories: stored.syncDeletedCategories || {}, categories };
+      return { ...structuredClone(defaults), ...stored, budgetUpdatedAt: stored.budgetUpdatedAt || {}, syncDeleted: stored.syncDeleted || [], syncDeletedBusiness: stored.syncDeletedBusiness || [], syncDeletedAt: stored.syncDeletedAt || {}, syncDeletedCategories: stored.syncDeletedCategories || {}, categories };
     } catch { return structuredClone(defaults); }
   }
   let syncTimer;
@@ -241,17 +241,24 @@
     const merged = { ...structuredClone(defaults), ...local, categories: { ...defaults.categories, ...(local.categories || {}) } };
     const deleted = new Set([...(local.syncDeleted || []), ...(remote.syncDeleted || [])]); merged.syncDeleted = [...deleted];
     merged.syncDeletedBusiness = [...new Set([...(local.syncDeletedBusiness || []), ...(remote.syncDeletedBusiness || [])])];
+    merged.syncDeletedAt = { ...(remote.syncDeletedAt || {}), ...(local.syncDeletedAt || {}) };
+    for (const [id, timestamp] of Object.entries(remote.syncDeletedAt || {})) if (Date.parse(timestamp) > Date.parse(merged.syncDeletedAt[id] || '')) merged.syncDeletedAt[id] = timestamp;
     merged.syncDeletedCategories = { ...(remote.syncDeletedCategories || {}), ...(local.syncDeletedCategories || {}) };
     const keys = ['transactions', 'business', 'installments', 'notes', 'savingsGoals', 'savingsTransfers'];
     const writeTime = item => Date.parse(item.updatedAt || item.updated_at || item.updated || item.created || '') || 0;
     for (const key of keys) {
       const all = new Map();
       for (const item of [...(local[key] || []), ...(remote[key] || [])]) {
-        if (deleted.has(item.id)) continue;
+        const removedAt = Date.parse(merged.syncDeletedAt[item.id] || '') || 0;
+        if ((deleted.has(item.id) && !removedAt && !item.updatedAt) || (removedAt && removedAt >= writeTime(item))) continue;
         const current = all.get(item.id);
         if (!current || writeTime(item) >= writeTime(current)) all.set(item.id, item);
       }
       merged[key] = [...all.values()];
+    }
+    const activeItems = keys.flatMap(key => merged[key]);
+    for (const item of activeItems) if (merged.syncDeletedAt[item.id] && writeTime(item) > (Date.parse(merged.syncDeletedAt[item.id]) || 0)) {
+      delete merged.syncDeletedAt[item.id]; merged.syncDeleted = merged.syncDeleted.filter(value => value !== item.id); merged.syncDeletedBusiness = merged.syncDeletedBusiness.filter(value => value !== item.id);
     }
     merged.categories = Object.fromEntries(Object.keys(defaults.categories).map(key => [key, [...new Set([...(remote.categories?.[key] || []), ...(local.categories?.[key] || [])])].filter(value => !merged.syncDeletedCategories[key]?.includes(value))]));
     merged.budgetUpdatedAt = { ...(remote.budgetUpdatedAt || {}), ...(local.budgetUpdatedAt || {}) };
@@ -335,7 +342,7 @@
         data.syncDeleted = (data.syncDeleted || []).filter(id => id !== tx.id);
       } else if (personalIncome) {
         data.transactions = data.transactions.filter(tx => tx.id !== personalIncome.id);
-        data.syncDeleted ||= []; data.syncDeleted.push(personalIncome.id); delete entry.personalIncomeId;
+        data.syncDeleted ||= []; data.syncDeleted.push(personalIncome.id); data.syncDeletedAt ||= {}; data.syncDeletedAt[personalIncome.id] = timestamp; delete entry.personalIncomeId;
       }
       if (!data.categories.income.includes('Pendapatan usaha')) data.categories.income.push('Pendapatan usaha');
       save();
@@ -378,7 +385,7 @@
       data[collection] = data[collection].filter(item => item.id !== id); if (linked) data.transactions = data.transactions.filter(tx => tx.id !== linked.id);
       return { removed, linked };
     }, ({ removed, linked }) => { if (removed) data[collection].push(removed); if (linked) data.transactions.push(linked); }, ({ linked }) => {
-      data.syncDeleted ||= []; data.syncDeleted.push(id); if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); } if (linked) data.syncDeleted.push(linked.id);
+      const timestamp = new Date().toISOString(); data.syncDeleted ||= []; data.syncDeleted.push(id); data.syncDeletedAt ||= {}; data.syncDeletedAt[id] = timestamp; if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); } if (linked) { data.syncDeleted.push(linked.id); data.syncDeletedAt[linked.id] = timestamp; }
     });
   }
   function exportData() {
@@ -421,7 +428,7 @@
     if (name === 'open-note' || name === 'edit-note') { const note = data.notes.find(x => x.id === id); if (note) name === 'open-note' ? openNoteDetails(note) : openNote(note); }
     if (name === 'delete-note') remove(id, 'notes', 'catatan');
     if (name === 'add-saving') { const goal = data.savingsGoals.find(x => x.id === id); if (goal) openSavingTransfer(goal); }
-    if (name === 'delete-goal') undoableDelete(`goal:${id}`, 'Target tabungan dihapus.', () => { const goal = data.savingsGoals.find(x => x.id === id); const transfers = data.savingsTransfers.filter(x => x.goalId === id); data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); return { goal, transfers }; }, ({ goal, transfers }) => { if (goal) data.savingsGoals.push(goal); data.savingsTransfers.push(...transfers); }, () => { data.syncDeleted ||= []; data.syncDeleted.push(id); });
+    if (name === 'delete-goal') undoableDelete(`goal:${id}`, 'Target tabungan dihapus.', () => { const goal = data.savingsGoals.find(x => x.id === id); const transfers = data.savingsTransfers.filter(x => x.goalId === id); data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); return { goal, transfers }; }, ({ goal, transfers }) => { if (goal) data.savingsGoals.push(goal); data.savingsTransfers.push(...transfers); }, () => { data.syncDeleted ||= []; data.syncDeleted.push(id); data.syncDeletedAt ||= {}; data.syncDeletedAt[id] = new Date().toISOString(); });
     if (name === 'quick-menu') openQuickMenu();
     if (name === 'photo-capture') openPhotoCapture();
     if (name === 'enable-cloud') {
