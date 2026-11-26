@@ -3,7 +3,7 @@
   const today = new Date();
   const isoToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const defaults = {
-    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, budgetUpdatedAt: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedAt: {}, syncDeletedCategories: {},
+    transactions: [], business: [], installments: [], notes: [], savingsGoals: [], savingsTransfers: [], budgets: {}, budgetUpdatedAt: {}, syncDeleted: [], syncDeletedBusiness: [], syncDeletedAt: {}, syncDeletedRecords: [], syncDeletedCategories: {},
     categories: { income: ['Gaji', 'Pendapatan laba usaha', 'Bonus', 'Pendapatan lain'], expense: ['Makan', 'Jajan', 'Bensin', 'Transportasi', 'Belanja rumah', 'Kesehatan', 'Tagihan', 'Lainnya'], debt: ['Kendaraan', 'Rumah', 'Elektronik', 'Pinjaman', 'Lainnya'] }
   };
   const normalizeIncomeCategory = name => name === 'Pendapatan usaha' ? 'Pendapatan laba usaha' : name;
@@ -253,6 +253,14 @@
     merged.syncDeletedBusiness = [...new Set([...(local.syncDeletedBusiness || []), ...(remote.syncDeletedBusiness || [])])];
     merged.syncDeletedAt = { ...(remote.syncDeletedAt || {}), ...(local.syncDeletedAt || {}) };
     for (const [id, timestamp] of Object.entries(remote.syncDeletedAt || {})) if (Date.parse(timestamp) > Date.parse(merged.syncDeletedAt[id] || '')) merged.syncDeletedAt[id] = timestamp;
+    const deletedRecords = new Map();
+    for (const item of [...(local.syncDeletedRecords || []), ...(remote.syncDeletedRecords || [])]) {
+      if (!item?.id || !item.recordType) continue;
+      const key = item.recordType + ':' + item.id;
+      const prior = deletedRecords.get(key);
+      if (!prior || (Date.parse(item.deletedAt || '') || 0) >= (Date.parse(prior.deletedAt || '') || 0)) deletedRecords.set(key, item);
+    }
+    merged.syncDeletedRecords = [...deletedRecords.values()];
     merged.syncDeletedCategories = { ...(remote.syncDeletedCategories || {}), ...(local.syncDeletedCategories || {}) };
     const keys = ['transactions', 'business', 'installments', 'notes', 'savingsGoals', 'savingsTransfers'];
     const writeTime = item => Date.parse(item.updatedAt || item.updated_at || item.updated || item.created || '') || 0;
@@ -395,7 +403,12 @@
       data[collection] = data[collection].filter(item => item.id !== id); if (linked) data.transactions = data.transactions.filter(tx => tx.id !== linked.id);
       return { removed, linked };
     }, ({ removed, linked }) => { if (removed) data[collection].push(removed); if (linked) data.transactions.push(linked); }, ({ linked }) => {
-      const timestamp = new Date().toISOString(); data.syncDeleted ||= []; data.syncDeleted.push(id); data.syncDeletedAt ||= {}; data.syncDeletedAt[id] = timestamp; if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); } if (linked) { data.syncDeleted.push(linked.id); data.syncDeletedAt[linked.id] = timestamp; }
+      const timestamp = new Date().toISOString();
+      const recordTypes = { transactions: 'transaction', business: 'business', installments: 'installment', notes: 'note' };
+      data.syncDeleted ||= []; data.syncDeleted.push(id); data.syncDeletedAt ||= {}; data.syncDeletedAt[id] = timestamp;
+      data.syncDeletedRecords ||= []; data.syncDeletedRecords.push({ id, recordType: recordTypes[collection], deletedAt: timestamp });
+      if (collection === 'business') { data.syncDeletedBusiness ||= []; data.syncDeletedBusiness.push(id); }
+      if (linked) { data.syncDeleted.push(linked.id); data.syncDeletedAt[linked.id] = timestamp; data.syncDeletedRecords.push({ id: linked.id, recordType: 'transaction', deletedAt: timestamp }); }
     });
   }
   function exportData() {
@@ -438,7 +451,12 @@
     if (name === 'open-note' || name === 'edit-note') { const note = data.notes.find(x => x.id === id); if (note) name === 'open-note' ? openNoteDetails(note) : openNote(note); }
     if (name === 'delete-note') remove(id, 'notes', 'catatan');
     if (name === 'add-saving') { const goal = data.savingsGoals.find(x => x.id === id); if (goal) openSavingTransfer(goal); }
-    if (name === 'delete-goal') undoableDelete(`goal:${id}`, 'Target tabungan dihapus.', () => { const goal = data.savingsGoals.find(x => x.id === id); const transfers = data.savingsTransfers.filter(x => x.goalId === id); data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); return { goal, transfers }; }, ({ goal, transfers }) => { if (goal) data.savingsGoals.push(goal); data.savingsTransfers.push(...transfers); }, () => { data.syncDeleted ||= []; data.syncDeleted.push(id); data.syncDeletedAt ||= {}; data.syncDeletedAt[id] = new Date().toISOString(); });
+    if (name === 'delete-goal') undoableDelete(`goal:${id}`, 'Target tabungan dihapus.', () => { const goal = data.savingsGoals.find(x => x.id === id); const transfers = data.savingsTransfers.filter(x => x.goalId === id); data.savingsGoals = data.savingsGoals.filter(x => x.id !== id); data.savingsTransfers = data.savingsTransfers.filter(x => x.goalId !== id); return { goal, transfers }; }, ({ goal, transfers }) => { if (goal) data.savingsGoals.push(goal); data.savingsTransfers.push(...transfers); }, ({ goal, transfers }) => {
+      const deletedAt = new Date().toISOString();
+      data.syncDeleted ||= []; data.syncDeletedAt ||= {}; data.syncDeletedRecords ||= [];
+      if (goal) { data.syncDeleted.push(goal.id); data.syncDeletedAt[goal.id] = deletedAt; data.syncDeletedRecords.push({ id: goal.id, recordType: 'savings_goal', deletedAt }); }
+      for (const transfer of transfers) { data.syncDeleted.push(transfer.id); data.syncDeletedAt[transfer.id] = deletedAt; data.syncDeletedRecords.push({ id: transfer.id, recordType: 'savings_transfer', deletedAt }); }
+    });
     if (name === 'quick-menu') openQuickMenu();
     if (name === 'photo-capture') openPhotoCapture();
     if (name === 'enable-cloud') {
